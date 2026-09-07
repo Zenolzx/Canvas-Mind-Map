@@ -16,6 +16,7 @@ const BUTTON = 'cmm-mindmap-toggle';
 /** Canvas owns serialization and undo. We add metadata and a reversible display layer. */
 export class CanvasMindmap {
     private stopped = false;
+    private previewSizes = new WeakMap<CanvasNode, { renderer: object; width: number; height: number }>();
     private frames = new Map<Canvas, { win: Window; id: number }>();
     private menuItems = new WeakMap<Menu, Set<string>>();
     private refreshing = new WeakSet<Canvas>();
@@ -562,6 +563,8 @@ export class CanvasMindmap {
     private clearDisplay(canvas: Canvas): void {
         for (const node of canvas.nodes.values()) {
             node.nodeEl.classList.remove(HIDDEN);
+            this.previewSizes.delete(node);
+            this.refreshPreview(node, false);
             node.nodeEl.querySelector(`.${BUTTON}`)?.remove();
         }
         for (const edge of canvas.edges.values()) this.hideEdge(edge, false);
@@ -592,6 +595,22 @@ export class CanvasMindmap {
         this.observers.set(node, { content, mutation, resize });
     }
 
+    /** CSS folding bypasses Obsidian's mount/resize notifications. Wake its virtual
+     * Markdown preview once it has visible dimensions again, even for fixed-height cards. */
+    private refreshPreview(node: CanvasNode, hidden: boolean): void {
+        if (hidden) { this.previewSizes.delete(node); return; }
+        const renderer = node.child?.previewMode?.renderer;
+        const preview = renderer?.previewEl;
+        if (!renderer || !preview || !preview.isConnected) return;
+        const width = preview.offsetWidth, height = preview.clientHeight;
+        if (width <= 0 || height <= 0) { this.previewSizes.delete(node); return; }
+        const previous = this.previewSizes.get(node);
+        if (previous?.renderer === renderer && previous.width === width && previous.height === height) return;
+        // Cache first: onResize may cause DOM mutations and schedule another frame.
+        this.previewSizes.set(node, { renderer, width, height });
+        renderer.onResize();
+    }
+
     private render(canvas: Canvas, measure = true): void {
         if (this.stopped) return;
         const data = canvas.getData();
@@ -617,9 +636,10 @@ export class CanvasMindmap {
             if (!node) continue;
             node.nodeEl.classList.toggle(HIDDEN, hidden.has(node.id));
             const state = meta(nodeData);
+            if (state && (measure || hidden.has(node.id))) this.refreshPreview(node, hidden.has(node.id));
             const autoHeight = !!state?.style.autoHeight && !state.overrides?.height && node.height === state.applied.height;
             if (state && !autoHeight) node.autoHeightEnabled = false;
-            this.observeContent(node, autoHeight && !canvas.readonly && !hidden.has(node.id) && node.nodeEl.isConnected);
+            this.observeContent(node, !!state && !hidden.has(node.id) && node.nodeEl.isConnected);
             let button = node.nodeEl.querySelector<HTMLButtonElement>(`.${BUTTON}`);
             if (!state || !children.has(node.id)) { button?.remove(); continue; }
             if (!button) {

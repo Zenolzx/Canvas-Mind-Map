@@ -75,6 +75,12 @@ export interface CanvasNode {
   canvas: Canvas
 
   nodeEl: HTMLElement
+  /** Native Markdown child; verified in the installed Obsidian runtime. */
+  child?: {
+    previewMode?: {
+      renderer: { previewEl: HTMLElement; onResize(): void }
+    }
+  }
   getData(): import('obsidian/canvas').AllCanvasNodeData
   setData(data: import('obsidian/canvas').AllCanvasNodeData): void
   onResizeDblclick?(event: unknown, direction: string): void
