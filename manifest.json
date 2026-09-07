@@ -1,0 +1,9 @@
+{
+  "id": "canvas-mind-map",
+  "name": "Canvas Mind Map",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.7",
+  "description": "Create collapsible Canvas mind maps from Markdown with seven layouts.",
+  "author": "Canvas Mind Map contributors",
+  "isDesktopOnly": false
+}
