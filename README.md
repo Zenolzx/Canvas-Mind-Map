@@ -1,3 +1,9 @@
+<div align="right">
+
+**简体中文** | [English](README.en.md)
+
+</div>
+
 # Canvas Mind Map
 
 **把 Markdown 笔记变成可折叠、可跳转、可自由排布的思维导图。**
