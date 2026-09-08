@@ -10,6 +10,8 @@
 
 Canvas Mind Map is an Obsidian plugin that converts the heading hierarchy of your notes into native Canvas cards, allowing you to browse document structure, expand details, and jump back to the original note for further reading.
 
+> **Current status:** The plugin is in preview and does not have a packaged release yet. Install it manually from a local build. Existing mind maps created by Enhanced Canvas are not migrated automatically, and the two implementations should not be enabled together.
+
 ## Features
 
 - **One-click generation**: Generate a mind map from a Markdown note card or a text card containing headings. Supports H1–H6 headings.
@@ -19,6 +21,7 @@ Canvas Mind Map is an Obsidian plugin that converts the heading hierarchy of you
 - **Progressive expansion**: Collapse an entire branch, expand only the next level, or display the mind map up to a specified depth.
 - **Branch reading**: Focus a branch from its context menu. Its visible descendants are temporarily rearranged into a compact local layout while the anchor and ancestor path stay fixed. The reading bar can hide or dim other content and toggle compact layout. Exit restores the original positions, folding state, selection, and viewport.
 - **Search and navigation**: Search titles and section paths, including folded nodes. Choosing a result expands its ancestor path and selects it. Use the context menu overview action to navigate the overall structure.
+- **Commands and hotkeys**: Generation, folding, depth, layout, focus, overview, search, refresh, and appearance actions are available from the Command Palette and can be assigned custom hotkeys in Obsidian.
 - **Links to the source note**: Heading cards generated from notes link directly to their corresponding sections. Text-source cards display headings directly.
 - **Per-level appearance settings**: Customize width, height, color, and automatic height for the center node and each level. Individual nodes can also be adjusted separately.
 - **Refresh from source**: Update the mind map after the original note structure changes while preserving manual edits to matching nodes. Confirmation is required before removing unmatched nodes.
@@ -26,7 +29,7 @@ Canvas Mind Map is an Obsidian plugin that converts the heading hierarchy of you
 
 ## Installation
 
-Manual installation is currently supported:
+Manual installation is currently supported. There is no packaged release yet:
 
 1. Obtain the three plugin files: `main.js`, `manifest.json`, and `styles.css`. If no release package is available yet, build the plugin from source using the instructions below.
 
@@ -36,7 +39,9 @@ Manual installation is currently supported:
 
 Requires **Obsidian 1.7.7 or later**.
 
-If you previously used the mind map functionality from Enhanced Canvas, disable the old plugin first. Existing mind map metadata from the old implementation is currently not compatible.
+### Migrating from Enhanced Canvas
+
+Disable Enhanced Canvas before enabling Canvas Mind Map if you used its built-in mind map feature. Do not run both implementations at the same time. Existing Enhanced Canvas mind map metadata is not currently compatible, so keep a backup of affected `.canvas` files and generate new maps with this plugin.
 
 ## Quick Start
 
