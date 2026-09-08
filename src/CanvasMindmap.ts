@@ -1,4 +1,4 @@
-import { ItemView, Menu, Modal, Notice, Setting } from 'obsidian';
+import { FuzzySuggestModal, ItemView, Menu, Modal, Notice, Setting } from 'obsidian';
 import { around } from 'monkey-around';
 import type { AllCanvasNodeData, CanvasData } from 'obsidian/canvas';
 import type CanvasMindMapPlugin from '../main';
@@ -12,6 +12,17 @@ import {
 
 const HIDDEN = 'cmm-mindmap-hidden';
 const BUTTON = 'cmm-mindmap-toggle';
+const DIM = 'cmm-mindmap-dim';
+
+interface ReadingFocus {
+    id: string;
+    rootId: string;
+    mode: 'hide' | 'dim';
+    expanded: Map<string, boolean>;
+    viewport: { x: number; y: number; zoom: number };
+    selection: string[];
+    bar?: HTMLElement;
+}
 
 /** Canvas owns serialization and undo. We add metadata and a reversible display layer. */
 export class CanvasMindmap {
@@ -22,6 +33,8 @@ export class CanvasMindmap {
     private refreshing = new WeakSet<Canvas>();
     private fitting = new WeakSet<Canvas>();
     private pendingPlacement = new Map<Canvas, Set<string>>();
+    private placementAnchors = new WeakMap<Canvas, string>();
+    private reading = new Map<Canvas, ReadingFocus>();
     private observers = new Map<CanvasNode, { content: HTMLElement; mutation: MutationObserver; resize?: ResizeObserver }>();
 
     constructor(private plugin: CanvasMindMapPlugin) {}
@@ -61,7 +74,7 @@ export class CanvasMindmap {
                 updateSelection: (next: Canvas['updateSelection']) => function(this: Canvas, callback: () => void) {
                     return next.call(this, () => {
                         callback();
-                        const hidden = hiddenNodes(this.getData().nodes);
+                        const hidden = feature.displayState(this, this.getData()).hidden;
                         // Native selection also contains edges, despite the older Canvas typings.
                         for (const item of this.selection as Set<CanvasNode | CanvasEdge>) {
                             if (feature.isHidden(item, hidden)) this.selection.delete(item as CanvasNode);
@@ -74,6 +87,9 @@ export class CanvasMindmap {
         });
         this.plugin.registerEvent(this.plugin.app.workspace.on('layout-change', () => {
             for (const node of this.observers.keys()) if (!node.nodeEl.isConnected) this.unobserve(node);
+            for (const [canvas, focus] of this.reading) if (!canvas.view.containerEl.isConnected) {
+                focus.bar?.remove(); this.reading.delete(canvas);
+            }
             this.eachCanvas(canvas => this.schedule(canvas));
         }));
         this.command('mindmap-create', '生成可折叠思维导图', (canvas, node) => this.generationDialog(canvas, node), true);
@@ -86,6 +102,16 @@ export class CanvasMindmap {
         this.command('mindmap-refresh', '思维导图：从原笔记刷新', (canvas, node) => this.refresh(canvas, node.id));
         this.command('mindmap-template', '思维导图：应用层级模板', (canvas, node) => this.applyTemplate(canvas, node.id));
         this.command('mindmap-style', '思维导图：设置当前节点外观', (canvas, node) => this.styleDialog(canvas, node.id));
+        this.command('mindmap-focus', '思维导图：聚焦当前分支', (canvas, node) => this.focusBranch(canvas, node.id), false, true);
+        this.command('mindmap-overview', '思维导图：查看全貌', (canvas, node) => this.overview(canvas, node.id), false, true);
+        this.command('mindmap-search', '思维导图：搜索标题', (canvas, node) => this.search(canvas, node.id), false, true);
+        this.plugin.addCommand({ id: 'mindmap-focus-exit', name: '思维导图：退出分支聚焦', checkCallback: checking => {
+            const view = this.plugin.app.workspace.getActiveViewOfType(ItemView);
+            const canvas = view?.getViewType() === 'canvas' ? (view as CanvasView).canvas : undefined;
+            if (!canvas || !this.reading.has(canvas)) return false;
+            if (!checking) this.exitFocus(canvas);
+            return true;
+        } });
     }
 
     private eachCanvas(callback: (canvas: Canvas) => void): void {
@@ -130,7 +156,6 @@ export class CanvasMindmap {
 
     addMenu(menu: Menu, node: CanvasNode): void {
         const canvas = node.canvas;
-        if (canvas.readonly) return;
         let added = this.menuItems.get(menu);
         if (!added) { added = new Set(); this.menuItems.set(menu, added); }
         if (added.has(node.id)) return;
@@ -139,14 +164,19 @@ export class CanvasMindmap {
         const item = (title: string, action: () => void | Promise<void>) => menu.addItem(entry =>
             entry.setTitle(title).setSection('canvas-mind-map').onClick(() => this.run(action)));
         if (!state) {
-            if (!this.isSource(node)) return;
+            if (canvas.readonly || !this.isSource(node)) return;
             item('生成可折叠思维导图', () => this.generationDialog(canvas, node));
             return;
         }
+        item('返回思维导图中心', () => this.center(canvas, node.id));
+        item('聚焦当前分支', () => this.focusBranch(canvas, node.id));
+        if (this.reading.has(canvas)) item('退出分支聚焦', () => this.exitFocus(canvas));
+        item('查看思维导图全貌', () => this.overview(canvas, node.id));
+        item('搜索标题（包含折叠节点）…', () => this.search(canvas, node.id));
+        if (canvas.readonly) return;
         item('展开下一级标题', () => this.fold(canvas, node.id, true));
         item('收起整个分支', () => this.fold(canvas, node.id, false));
         item('显示到第 N 层…', () => this.depthDialog(canvas, node.id));
-        item('返回思维导图中心', () => this.center(canvas, node.id));
         item('重新排列整张思维导图', () => this.relayout(canvas, node.id));
         item('切换思维导图布局…', () => this.layoutDialog(canvas, node.id));
         item('从原笔记刷新思维导图', () => this.refresh(canvas, node.id));
@@ -163,7 +193,32 @@ export class CanvasMindmap {
 
     private readData(canvas: Canvas): CanvasData {
         // getData retains unknown-field object references; never mutate a history snapshot.
-        return JSON.parse(JSON.stringify(canvas.getData())) as CanvasData;
+        return this.readingData(canvas, JSON.parse(JSON.stringify(canvas.getData())) as CanvasData);
+    }
+
+    /** Focus folding is view-local: it never changes the serialized expansion flags. */
+    private readingData(canvas: Canvas, data: CanvasData): CanvasData {
+        const focus = this.reading.get(canvas);
+        if (!focus) return data;
+        return { ...data, nodes: data.nodes.map(node => {
+            const state = meta(node), expanded = focus.expanded.get(node.id);
+            return state?.rootId === focus.rootId && expanded !== undefined
+                ? { ...node, [MINDMAP_KEY]: { ...state, expanded } } : node;
+        }) };
+    }
+
+    private persistentData(canvas: Canvas, data: CanvasData): CanvasData {
+        const focus = this.reading.get(canvas);
+        if (!focus) return data;
+        const saved = new Map(canvas.getData().nodes.map(node => [node.id, meta(node)?.expanded]));
+        for (const node of data.nodes) {
+            const state = meta(node);
+            if (state?.rootId !== focus.rootId) continue;
+            focus.expanded.set(node.id, state.expanded);
+            const original = saved.get(node.id);
+            if (original !== undefined) state.expanded = original;
+        }
+        return data;
     }
 
     private commit(canvas: Canvas, data: CanvasData, newlyVisible?: Set<string>): void {
@@ -174,7 +229,7 @@ export class CanvasMindmap {
             for (const id of newlyVisible) if (!hidden.has(id)) pending.add(id);
             this.pendingPlacement.set(canvas, pending);
         }
-        canvas.setData(data);
+        canvas.setData(this.persistentData(canvas, data));
         canvas.requestSave(false); // setData already pushes one native undo entry.
         this.render(canvas, false);
         this.schedule(canvas);
@@ -301,7 +356,8 @@ export class CanvasMindmap {
         if (!expanded) for (const child of descendants(treeNodes(data, state.rootId), id)) meta(child)!.expanded = false;
         const after = hiddenNodes(data.nodes);
         const revealed = new Set([...before].filter(nodeId => !after.has(nodeId)));
-        placeNodes(data, state.rootId, revealed);
+        this.placementAnchors.set(canvas, id);
+        placeNodes(data, state.rootId, revealed, id);
         this.commit(canvas, data, revealed);
         const focus = canvas.nodes.get(id);
         if (!canvas.selection.size && focus) canvas.select(focus);
@@ -321,7 +377,8 @@ export class CanvasMindmap {
                 for (const node of treeNodes(data, state.rootId)) meta(node)!.expanded = meta(node)!.depth < depth;
                 const after = hiddenNodes(data.nodes);
                 const revealed = new Set([...before].filter(nodeId => !after.has(nodeId)));
-                placeNodes(data, state.rootId, revealed);
+                this.placementAnchors.set(canvas, state.rootId);
+                placeNodes(data, state.rootId, revealed, state.rootId);
                 this.commit(canvas, data, revealed);
                 if (!canvas.selection.size) this.center(canvas, state.rootId);
             }
@@ -335,6 +392,137 @@ export class CanvasMindmap {
         const root = state && canvas.nodes.get(state.rootId);
         if (!root) { new Notice('中心节点已不存在。'); return; }
         canvas.deselectAll(); canvas.select(root); canvas.zoomToSelection();
+    }
+
+    private displayState(canvas: Canvas, data: CanvasData): { hidden: Set<string>; dim: Set<string> } {
+        data = this.readingData(canvas, data);
+        const hidden = hiddenNodes(data.nodes), dim = new Set<string>();
+        const focus = this.reading.get(canvas);
+        if (!focus) return { hidden, dim };
+        const tree = treeNodes(data, focus.rootId);
+        if (!tree.some(node => node.id === focus.id)) return { hidden, dim };
+        const keep = new Set([focus.id, ...descendants(tree, focus.id).map(node => node.id)]);
+        const lookup = new Map(tree.map(node => [node.id, node]));
+        let id: string | undefined = focus.id;
+        const seen = new Set<string>();
+        while (id && !seen.has(id)) {
+            seen.add(id); keep.add(id);
+            id = meta(lookup.get(id)!)?.parentId;
+            if (id && !lookup.has(id)) break;
+        }
+        for (const node of data.nodes) if (!keep.has(node.id)) (focus.mode === 'hide' ? hidden : dim).add(node.id);
+        return { hidden, dim };
+    }
+
+    private zoomNodes(canvas: Canvas, ids: string[], selected: string): void {
+        const hidden = this.displayState(canvas, canvas.getData()).hidden;
+        canvas.deselectAll();
+        for (const id of ids) {
+            const node = canvas.nodes.get(id);
+            if (node && !hidden.has(id)) canvas.select(node);
+        }
+        if (canvas.selection.size) canvas.zoomToSelection();
+        canvas.deselectAll();
+        const node = canvas.nodes.get(selected);
+        if (node && !hidden.has(selected)) canvas.select(node);
+    }
+
+    private focusBranch(canvas: Canvas, id: string): void {
+        const data = this.readData(canvas), node = data.nodes.find(item => item.id === id), state = node && meta(node);
+        if (!state) return;
+        let focus = this.reading.get(canvas);
+        if (focus && focus.rootId !== state.rootId) { this.exitFocus(canvas); focus = undefined; }
+        if (!focus) {
+            focus = { id, rootId: state.rootId, mode: this.plugin.settings.focusMode,
+                expanded: new Map(treeNodes(data, state.rootId).map(node => [node.id, meta(node)!.expanded])),
+                viewport: { ...canvas.getState() }, selection: [...canvas.selection].map(node => node.id) };
+            this.reading.set(canvas, focus);
+        }
+        focus.id = id;
+        focus.bar?.remove();
+        const host = canvas.view.containerEl.querySelector<HTMLElement>('.view-content') ?? canvas.view.containerEl;
+        const bar = host.createDiv({ cls: 'cmm-reading-bar' });
+        focus.bar = bar;
+        bar.createSpan({ text: `聚焦：${state.title || '无标题'}` });
+        const select = bar.createEl('select', { attr: { 'aria-label': '其他分支的显示方式' } });
+        select.createEl('option', { text: '临时隐藏其他分支', value: 'hide' });
+        select.createEl('option', { text: '淡化其他分支', value: 'dim' });
+        select.value = focus.mode;
+        select.addEventListener('change', () => {
+            focus!.mode = select.value === 'dim' ? 'dim' : 'hide';
+            this.plugin.settings.focusMode = focus!.mode;
+            void this.plugin.saveSettings(); this.render(canvas, false); this.schedule(canvas);
+        });
+        const exit = bar.createEl('button', { text: '退出聚焦' });
+        exit.addEventListener('click', () => this.exitFocus(canvas));
+        const search = bar.createEl('button', { text: '搜索标题' });
+        search.addEventListener('click', () => this.search(canvas, focus!.id));
+        for (const type of ['pointerdown', 'dblclick', 'wheel']) bar.addEventListener(type, event => event.stopPropagation());
+        this.render(canvas, false); this.schedule(canvas);
+        this.zoomNodes(canvas, [id, ...descendants(treeNodes(data, state.rootId), id).map(node => node.id)], id);
+    }
+
+    private exitFocus(canvas: Canvas): void {
+        const focus = this.reading.get(canvas);
+        if (!focus) return;
+        this.reading.delete(canvas); focus.bar?.remove();
+        this.render(canvas, false); this.schedule(canvas);
+        canvas.deselectAll();
+        for (const id of focus.selection) {
+            const node = canvas.nodes.get(id);
+            if (node) canvas.select(node);
+        }
+        canvas.setViewport(focus.viewport.x, focus.viewport.y, focus.viewport.zoom);
+    }
+
+    private overview(canvas: Canvas, id: string): void {
+        this.exitFocus(canvas);
+        const node = canvas.nodes.get(id), state = node && meta(node.getData());
+        if (state) this.zoomNodes(canvas, treeNodes(canvas.getData(), state.rootId).map(node => node.id), state.rootId);
+    }
+
+    private search(canvas: Canvas, id: string): void {
+        const node = canvas.nodes.get(id), state = node && meta(node.getData());
+        if (!state) return;
+        const feature = this;
+        const items = treeNodes(canvas.getData(), state.rootId).map(node => {
+            const state = meta(node)!;
+            let path = state.title;
+            try { path = state.key.split('/').filter(Boolean).map(part => decodeURIComponent(part.replace(/:\d+$/, ''))).join(' › ') || state.title; } catch { /* External metadata may not be URI encoded. */ }
+            return { id: node.id, label: path };
+        });
+        const dialog = new class extends FuzzySuggestModal<{ id: string; label: string }> {
+            getItems() { return items; }
+            getItemText(item: { label: string }) { return item.label; }
+            onChooseItem(item: { id: string }) { feature.run(() => feature.revealResult(canvas, item.id)); }
+        }(this.plugin.app);
+        dialog.setPlaceholder('搜索标题或章节路径（包含折叠节点）'); dialog.open();
+    }
+
+    private revealResult(canvas: Canvas, id: string): void {
+        if (this.stopped) return;
+        this.exitFocus(canvas);
+        const data = this.readData(canvas), lookup = new Map(data.nodes.map(node => [node.id, node]));
+        const node = lookup.get(id), state = node && meta(node);
+        if (!state) { new Notice('该标题已不存在，请重新搜索。'); return; }
+        const before = hiddenNodes(data.nodes);
+        if (canvas.readonly && before.has(id)) { new Notice('画布为只读，无法展开折叠路径。'); return; }
+        let parentId = state.parentId;
+        const seen = new Set([id]);
+        while (parentId && !seen.has(parentId)) {
+            seen.add(parentId);
+            const parent = lookup.get(parentId), parentState = parent && meta(parent);
+            if (!parentState || parentState.rootId !== state.rootId) break;
+            parentState.expanded = true; parentId = parentState.parentId;
+        }
+        const after = hiddenNodes(data.nodes), revealed = new Set([...before].filter(id => !after.has(id)));
+        if (revealed.size) {
+            this.placementAnchors.set(canvas, state.rootId);
+            placeNodes(data, state.rootId, revealed, state.rootId);
+            this.commit(canvas, data, revealed);
+            this.placementAnchors.set(canvas, id);
+        }
+        this.zoomNodes(canvas, [id], id);
     }
 
     /** Replace the source preview with a compact center; preserve note content in metadata. */
@@ -394,6 +582,7 @@ export class CanvasMindmap {
         for (const node of nodes) if (node.id !== centerId) meta(node)!.placed = false;
         const movable = new Set(nodes.filter(node => node.id !== centerId).map(node => node.id));
         placeNodes(data, centerId, movable);
+        this.placementAnchors.set(canvas, centerId);
         this.commit(canvas, data, movable);
         this.center(canvas, centerId);
     }
@@ -561,13 +750,18 @@ export class CanvasMindmap {
     }
 
     private clearDisplay(canvas: Canvas): void {
+        this.reading.get(canvas)?.bar?.remove(); this.reading.delete(canvas);
         for (const node of canvas.nodes.values()) {
-            node.nodeEl.classList.remove(HIDDEN);
+            node.nodeEl.classList.remove(HIDDEN, DIM);
             this.previewSizes.delete(node);
             this.refreshPreview(node, false);
             node.nodeEl.querySelector(`.${BUTTON}`)?.remove();
         }
-        for (const edge of canvas.edges.values()) this.hideEdge(edge, false);
+        for (const edge of canvas.edges.values()) { this.hideEdge(edge, false); this.dimEdge(edge, false); }
+    }
+
+    private dimEdge(edge: CanvasEdge, dim: boolean): void {
+        for (const element of [edge.lineGroupEl, edge.lineEndGroupEl, edge.labelElement?.wrapperEl]) element?.classList.toggle(DIM, dim);
     }
 
     private hideEdge(edge: CanvasEdge, hidden: boolean): void {
@@ -613,8 +807,12 @@ export class CanvasMindmap {
 
     private render(canvas: Canvas, measure = true): void {
         if (this.stopped) return;
-        const data = canvas.getData();
-        const hidden = hiddenNodes(data.nodes);
+        const data = this.readingData(canvas, canvas.getData());
+        const focus = this.reading.get(canvas);
+        if (focus && !data.nodes.some(node => node.id === focus.id && meta(node)?.rootId === focus.rootId)) {
+            focus.bar?.remove(); this.reading.delete(canvas);
+        }
+        const { hidden, dim } = this.displayState(canvas, data);
         for (const node of this.observers.keys()) {
             if (node.canvas === canvas && (canvas.nodes.get(node.id) !== node || !node.nodeEl.isConnected)) this.unobserve(node);
         }
@@ -635,6 +833,7 @@ export class CanvasMindmap {
             const node = canvas.nodes.get(nodeData.id);
             if (!node) continue;
             node.nodeEl.classList.toggle(HIDDEN, hidden.has(node.id));
+            node.nodeEl.classList.toggle(DIM, dim.has(node.id));
             const state = meta(nodeData);
             if (state && (measure || hidden.has(node.id))) this.refreshPreview(node, hidden.has(node.id));
             const autoHeight = !!state?.style.autoHeight && !state.overrides?.height && node.height === state.applied.height;
@@ -652,7 +851,8 @@ export class CanvasMindmap {
                 button.addEventListener('click', event => {
                     event.stopPropagation(); event.preventDefault();
                     const latest = meta(node.getData());
-                    if (latest && !canvas.readonly) this.run(() => this.fold(canvas, node.id, !latest.expanded));
+                    const expanded = this.reading.get(canvas)?.expanded.get(node.id) ?? latest?.expanded;
+                    if (latest && !canvas.readonly) this.run(() => this.fold(canvas, node.id, !expanded));
                 });
                 node.nodeEl.appendChild(button);
             }
@@ -664,13 +864,16 @@ export class CanvasMindmap {
             button.setAttribute('aria-label', `${state.expanded ? '收起分支' : '展开下一级'}，${count} 个隐藏后代`);
             button.title = `${state.expanded ? '收起分支' : '展开下一级'} · ${count} 个隐藏后代`;
         }
-        for (const edge of canvas.edges.values()) this.hideEdge(edge, this.isHidden(edge, hidden));
+        for (const edge of canvas.edges.values()) {
+            this.hideEdge(edge, this.isHidden(edge, hidden)); this.dimEdge(edge, this.isHidden(edge, dim));
+        }
         for (const item of Array.from(canvas.selection) as (CanvasNode | CanvasEdge)[]) {
             if (this.isHidden(item, hidden)) canvas.deselect(item);
         }
         // Auto-height uses the native measurement, after Markdown has rendered. Never
         // writes hidden nodes or overwrites a manual resize. Metadata follows the fit.
         const fittedRoots = new Set<string>();
+        const fittedNodes = new Set<string>();
         const ready = new Set<string>();
         if (measure && !canvas.readonly) for (const nodeData of data.nodes) {
             const state = meta(nodeData), node = canvas.nodes.get(nodeData.id);
@@ -697,19 +900,24 @@ export class CanvasMindmap {
                     node.setData(fitted);
                     canvas.requestSave(false);
                     fittedRoots.add(fittedState.rootId);
+                    fittedNodes.add(node.id);
                 }
             }
         }
-        // A newly revealed long card may grow after asynchronous Markdown rendering.
-        // Resolve its new bounds without moving cards already on screen beforehand.
+        // Async Markdown height changes must also reserve subtree space, including
+        // images that finish loading after the initial placement queue has drained.
         const pending = this.pendingPlacement.get(canvas);
-        if (pending) {
-            if (fittedRoots.size) {
-                const fittedData = this.readData(canvas);
-                for (const rootId of fittedRoots) placeNodes(fittedData, rootId, pending);
-                canvas.importData(fittedData);
-                canvas.requestSave(false);
+        if (fittedRoots.size) {
+            const fittedData = this.readData(canvas);
+            for (const rootId of fittedRoots) {
+                const candidate = this.placementAnchors.get(canvas);
+                const anchor = fittedData.nodes.find(node => node.id === candidate && meta(node)?.rootId === rootId);
+                placeNodes(fittedData, rootId, new Set([...(pending ?? []), ...fittedNodes]), anchor?.id ?? rootId);
             }
+            canvas.importData(this.persistentData(canvas, fittedData));
+            canvas.requestSave(false);
+        }
+        if (pending) {
             for (const id of pending) {
                 const node = canvas.nodes.get(id), state = node && meta(node.getData());
                 if (!state || hidden.has(id) || !state.style.autoHeight || ready.has(id)) pending.delete(id);

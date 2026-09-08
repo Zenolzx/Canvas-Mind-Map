@@ -178,12 +178,12 @@ export function assignAngles(nodes: AllCanvasNodeData[], rootId: string): void {
     allocate(rootId, -Math.PI, Math.PI * 2);
 }
 
-/** Only candidates move. Existing visible cards, including other diagrams, are obstacles. */
-export function placeNodes(data: CanvasData, rootId: string, candidates: Set<string>): void {
+/** Directional trees reflow affected sides; radial trees retain angular placement. */
+export function placeNodes(data: CanvasData, rootId: string, candidates: Set<string>, anchorId?: string): void {
     const center = data.nodes.find(node => node.id === rootId);
     if (!center) return;
     const layout = meta(center)?.layout ?? 'radial';
-    if (layout !== 'radial') { placeDirectionalNodes(data, rootId, candidates, layout); return; }
+    if (layout !== 'radial') { placeDirectionalNodes(data, rootId, candidates, layout, anchorId); return; }
     const hidden = hiddenNodes(data.nodes);
     const lookup = new Map(data.nodes.map(node => [node.id, node]));
     const tree = treeNodes(data, rootId);
@@ -225,8 +225,8 @@ export function placeNodes(data: CanvasData, rootId: string, candidates: Set<str
     updateEdgeSides(data, rootId);
 }
 
-/** Size-aware orthogonal trees. Only candidates move; existing cards anchor newly revealed branches. */
-function placeDirectionalNodes(data: CanvasData, rootId: string, candidates: Set<string>, layout: MindmapLayout): void {
+/** Reflow affected sides as ordered subtree lanes; keep the interaction anchor fixed. */
+function placeDirectionalNodes(data: CanvasData, rootId: string, candidates: Set<string>, layout: MindmapLayout, anchorId?: string): void {
     const hidden = hiddenNodes(data.nodes);
     const tree = treeNodes(data, rootId).filter(node => !hidden.has(node.id));
     const root = tree.find(node => node.id === rootId);
@@ -252,14 +252,28 @@ function placeDirectionalNodes(data: CanvasData, rootId: string, candidates: Set
     measure(root);
     const sides = new Map<string, number>(), groups: AllCanvasNodeData[][] = [[], []];
     const totals = [0, 0];
-    for (const branch of children.get(rootId) ?? []) {
-        let side = layout === 'left' || layout === 'up' ? -1 : 1;
-        if (dual) {
-            side = totals[0] <= totals[1] ? 1 : -1;
-            if (!candidates.has(branch.id) && meta(branch)!.placed) side = mainCenter(branch) >= mainCenter(root) ? 1 : -1;
+    const branches = children.get(rootId) ?? [];
+    const branchSides = new Map<string, number>();
+    if (dual) {
+        // Preserve established sides during expansion. On generation/full relayout,
+        // allocate the largest subtrees first, then retain document order per side.
+        for (const branch of branches) if (meta(branch)!.placed && (!candidates.has(branch.id) || !!anchorId)) {
+            const side = mainCenter(branch) >= mainCenter(root) ? 1 : -1;
+            branchSides.set(branch.id, side);
+            totals[side === 1 ? 0 : 1] += spans.get(branch.id)! + 80;
         }
+        for (const branch of [...branches].sort((a, b) => spans.get(b.id)! - spans.get(a.id)!)) {
+            if (branchSides.has(branch.id)) continue;
+            const side = totals[0] <= totals[1] ? 1 : -1;
+            branchSides.set(branch.id, side);
+            totals[side === 1 ? 0 : 1] += spans.get(branch.id)! + 80;
+        }
+    }
+    for (const branch of branches) {
+        let side = layout === 'left' || layout === 'up' ? -1 : 1;
+        if (dual) side = branchSides.get(branch.id)!;
         const index = side === 1 ? 0 : 1;
-        groups[index].push(branch); totals[index] += spans.get(branch.id)! + 80;
+        groups[index].push(branch);
         for (const member of [branch, ...descendants(tree, branch.id)]) sides.set(member.id, side);
     }
     const sizes = new Map<number, number>([[0, mainSize(root)]]);
@@ -279,22 +293,37 @@ function placeDirectionalNodes(data: CanvasData, rootId: string, candidates: Set
         }
     };
     for (const group of groups) arrange(group, crossCenter(root));
-    const movable = new Set(tree.filter(node => node.id !== rootId && candidates.has(node.id)).map(node => node.id));
+    const affected = new Set([...candidates, ...(anchorId ? [anchorId] : [])].map(id => sides.get(id)));
+    if (anchorId === rootId) { affected.add(1); affected.add(-1); }
+    const movable = new Set(tree.filter(node => node.id !== rootId && affected.has(sides.get(node.id))).map(node => node.id));
+    const anchor = tree.find(node => node.id === anchorId);
+    const anchorTarget = anchor && targets.get(anchor.id);
+    const crossShift = anchor && anchorTarget ? crossCenter(anchor) - anchorTarget.cross : 0;
+    const mainShift = anchor && anchorTarget ? mainCenter(anchor) - anchorTarget.main : 0;
     const occupied = data.nodes.filter(node => !hidden.has(node.id) && !movable.has(node.id) && node.type !== 'group');
     const lookup = new Map(tree.map(node => [node.id, node]));
     for (const node of tree.filter(node => movable.has(node.id)).sort((a, b) => meta(a)!.depth - meta(b)!.depth)) {
         const state = meta(node)!, target = targets.get(node.id), parent = lookup.get(state.parentId!);
         if (!target || !parent) continue;
-        if (!state.placed || occupied.some(other => overlaps(node, other))) {
-            const parentTarget = targets.get(parent.id)!;
+        // Manual positioning can use fractional canvas coordinates. Preserve the
+        // anchor exactly, rather than rounding it through the layout calculation.
+        if (node.id === anchorId) { state.placed = true; occupied.push(node); continue; }
+        {
             const side = sides.get(node.id)!;
-            let main = target.main + mainCenter(parent) - parentTarget.main;
-            const cross = target.cross + crossCenter(parent) - parentTarget.cross;
+            const anchoredSide = anchor && sides.get(anchor.id) === side;
+            let main = target.main + (anchoredSide ? mainShift : 0);
+            // A card displaced by an unrelated canvas obstacle must still have
+            // children farther outward, never a backwards connector.
+            if (node.id !== anchorId) main = side * Math.max(side * main,
+                side * mainCenter(parent) + (mainSize(parent) + mainSize(node)) / 2 + 120);
+            // All members share a lane offset: never move individual children back
+            // toward an old parent position, which crossed adjacent subtree edges.
+            const cross = target.cross + (anchoredSide ? crossShift : 0);
             do {
                 const x = vertical ? cross : main, y = vertical ? main : cross;
                 node.x = Math.round(x - node.width / 2); node.y = Math.round(y - node.height / 2);
                 main += side * Math.max(80, mainSize(node) + 48);
-            } while (occupied.some(other => overlaps(node, other)));
+            } while (node.id !== anchorId && occupied.some(other => overlaps(node, other)));
         }
         state.placed = true; occupied.push(node);
     }

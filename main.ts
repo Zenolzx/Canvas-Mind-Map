@@ -13,6 +13,7 @@ export default class CanvasMindMapPlugin extends Plugin {
         this.settings = {
             mindmapLevels: normalizeMindmapLevels(saved.mindmapLevels),
             lastMode: saved.lastMode === 'body' ? 'body' : 'title',
+            focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
             lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABELS, saved.lastLayout) ? saved.lastLayout : 'radial',
         };
         this.mindmap = new CanvasMindmap(this);

@@ -43,6 +43,9 @@ export interface Canvas {
   deselectAll(): void
   select(node: CanvasNode): void
   zoomToSelection(): void
+  /** Verified in installed Obsidian: zoom is the native logarithmic value. */
+  getState(): { x: number; y: number; zoom: number }
+  setViewport(x: number, y: number, zoom: number): void
 
   createFileNode(options: { [key: string]: unknown }): CanvasNode
 

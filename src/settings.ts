@@ -21,4 +21,5 @@ export interface MindmapSettings {
     mindmapLevels: MindmapLevelStyle[];
     lastMode: 'title' | 'body';
     lastLayout: MindmapLayout;
+    focusMode: 'hide' | 'dim';
 }
