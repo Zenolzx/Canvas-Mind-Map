@@ -349,6 +349,140 @@ export function updateEdgeSides(data: CanvasData, rootId: string): void {
     }
 }
 
+export interface FocusLayoutOptions {
+    focusId: string;
+    mode: 'hide' | 'dim';
+}
+
+/** Build a temporary, local projection for branch reading. The focus node stays
+ * fixed; only currently unfolded descendants move. Callers own restoration. */
+export function layoutFocusedSubtree(data: CanvasData, options: FocusLayoutOptions): Set<string> {
+    const focus = data.nodes.find(node => node.id === options.focusId), focusState = focus && meta(focus);
+    if (!focus || !focusState) return new Set();
+    const tree = treeNodes(data, focusState.rootId), folded = hiddenNodes(data.nodes);
+    const subtreeIds = new Set([focus.id, ...descendants(tree, focus.id).map(node => node.id)]);
+    const local = tree.filter(node => subtreeIds.has(node.id) && !folded.has(node.id));
+    const movable = new Set(local.filter(node => node.id !== focus.id).map(node => node.id));
+    if (!movable.size) return movable;
+
+    const lookup = new Map(local.map(node => [node.id, node]));
+    const allLookup = new Map(data.nodes.map(node => [node.id, node]));
+    const children = new Map<string, AllCanvasNodeData[]>();
+    for (const node of local) {
+        const parent = meta(node)?.parentId;
+        if (parent && lookup.has(parent)) children.set(parent, [...(children.get(parent) ?? []), node]);
+    }
+    const center = (node: AllCanvasNodeData) => ({ x: node.x + node.width / 2, y: node.y + node.height / 2 });
+    const original = new Map(data.nodes.map(node => [node.id, center(node)]));
+    const anchor = center(focus), root = tree.find(node => node.id === focusState.rootId);
+    const layout = root ? meta(root)?.layout ?? 'radial' : 'radial';
+    const localDepth = new Map<string, number>([[focus.id, 0]]);
+    const visit = (id: string) => { for (const child of children.get(id) ?? []) { localDepth.set(child.id, localDepth.get(id)! + 1); visit(child.id); } };
+    visit(focus.id);
+    const targets = new Map<string, { x: number; y: number }>([[focus.id, anchor]]);
+
+    const radial = layout === 'radial';
+    if (radial) {
+        const maxSize = new Map<number, number>();
+        for (const node of local) {
+            const depth = localDepth.get(node.id)!;
+            maxSize.set(depth, Math.max(maxSize.get(depth) ?? 0, Math.hypot(node.width, node.height)));
+        }
+        const radii = new Map<number, number>([[0, 0]]);
+        for (let depth = 1; depth <= Math.max(...localDepth.values()); depth++) {
+            radii.set(depth, radii.get(depth - 1)! + (maxSize.get(depth - 1) ?? 0) / 2 + (maxSize.get(depth) ?? 0) / 2 + 120);
+        }
+        const weights = new Map<string, number>();
+        const weigh = (id: string): number => {
+            const result = Math.max(1, (children.get(id) ?? []).reduce((sum, child) => sum + weigh(child.id), 0));
+            weights.set(id, result); return result;
+        };
+        weigh(focus.id);
+        let direction = -Math.PI;
+        let span = Math.PI * 2;
+        if (focus.id !== focusState.rootId) {
+            const parent = allLookup.get(focusState.parentId ?? ''), from = parent && original.get(parent.id), to = original.get(focus.id)!;
+            direction = from ? Math.atan2(to.y - from.y, to.x - from.x) : 0;
+            span = Math.PI * 0.9;
+        }
+        const allocate = (id: string, start: number, width: number): void => {
+            let cursor = start;
+            const total = (children.get(id) ?? []).reduce((sum, child) => sum + (weights.get(child.id) ?? 1), 0) || 1;
+            for (const child of children.get(id) ?? []) {
+                const childWidth = width * (weights.get(child.id) ?? 1) / total;
+                const angle = cursor + childWidth / 2, radius = radii.get(localDepth.get(child.id)!)!;
+                targets.set(child.id, { x: anchor.x + Math.cos(angle) * radius, y: anchor.y + Math.sin(angle) * radius });
+                allocate(child.id, angle - Math.min(childWidth, Math.PI * 0.72) / 2, Math.min(childWidth, Math.PI * 0.72));
+                cursor += childWidth;
+            }
+        };
+        allocate(focus.id, direction - span / 2, span);
+    } else {
+        const vertical = layout === 'vertical' || layout === 'up' || layout === 'down';
+        const dual = focus.id === focusState.rootId && (layout === 'horizontal' || layout === 'vertical');
+        const configuredSign = layout === 'left' || layout === 'up' ? -1 : 1;
+        const parent = allLookup.get(focusState.parentId ?? '');
+        const focusCenter = original.get(focus.id)!;
+        const parentCenter = parent && original.get(parent.id);
+        const inheritedSign = parentCenter ? Math.sign((vertical ? focusCenter.y - parentCenter.y : focusCenter.x - parentCenter.x)) || configuredSign : configuredSign;
+        const mainSize = (node: AllCanvasNodeData) => vertical ? node.height : node.width;
+        const crossSize = (node: AllCanvasNodeData) => vertical ? node.width : node.height;
+        const spans = new Map<string, number>();
+        const measure = (node: AllCanvasNodeData): number => {
+            const kids = children.get(node.id) ?? [];
+            const value = Math.max(crossSize(node), kids.reduce((sum, child) => sum + measure(child), 0) + Math.max(0, kids.length - 1) * 80);
+            spans.set(node.id, value); return value;
+        };
+        measure(focus);
+        const levelSize = new Map<number, number>([[0, mainSize(focus)]]);
+        for (const node of local) levelSize.set(localDepth.get(node.id)!, Math.max(levelSize.get(localDepth.get(node.id)!) ?? 0, mainSize(node)));
+        const distance = new Map<number, number>([[0, 0]]);
+        for (let depth = 1; depth <= Math.max(...localDepth.values()); depth++) {
+            distance.set(depth, distance.get(depth - 1)! + (levelSize.get(depth - 1) ?? 0) / 2 + (levelSize.get(depth) ?? 0) / 2 + 120);
+        }
+        const placeBranch = (siblings: AllCanvasNodeData[], crossCenter: number, sign: number): void => {
+            const total = siblings.reduce((sum, node) => sum + spans.get(node.id)!, 0) + Math.max(0, siblings.length - 1) * 80;
+            let cursor = crossCenter - total / 2;
+            for (const node of siblings) {
+                const cross = cursor + spans.get(node.id)! / 2;
+                const main = (vertical ? anchor.y : anchor.x) + sign * distance.get(localDepth.get(node.id)!)!;
+                targets.set(node.id, vertical ? { x: cross, y: main } : { x: main, y: cross });
+                placeBranch(children.get(node.id) ?? [], cross, sign);
+                cursor += spans.get(node.id)! + 80;
+            }
+        };
+        const branches = children.get(focus.id) ?? [];
+        if (dual) {
+            const groups: [AllCanvasNodeData[], AllCanvasNodeData[]] = [[], []];
+            let totals = [0, 0];
+            for (const branch of [...branches].sort((a, b) => spans.get(b.id)! - spans.get(a.id)!)) {
+                const index = totals[0] <= totals[1] ? 0 : 1;
+                groups[index].push(branch); totals[index] += spans.get(branch.id)!;
+            }
+            placeBranch(groups[0], vertical ? anchor.x : anchor.y, 1);
+            placeBranch(groups[1], vertical ? anchor.x : anchor.y, -1);
+        } else placeBranch(branches, vertical ? anchor.x : anchor.y, focus.id === focusState.rootId ? configuredSign : inheritedSign);
+    }
+
+    const occupied = options.mode === 'dim'
+        ? data.nodes.filter(node => !subtreeIds.has(node.id) && !folded.has(node.id) && node.type !== 'group') : [];
+    const placed: AllCanvasNodeData[] = [focus];
+    for (const node of local.filter(node => node.id !== focus.id).sort((a, b) => localDepth.get(a.id)! - localDepth.get(b.id)!)) {
+        const target = targets.get(node.id);
+        if (!target) continue;
+        let dx = target.x - anchor.x, dy = target.y - anchor.y;
+        const length = Math.hypot(dx, dy) || 1; dx /= length; dy /= length;
+        node.x = Math.round(target.x - node.width / 2); node.y = Math.round(target.y - node.height / 2);
+        let attempts = 0;
+        while (attempts++ < 200 && [...occupied, ...placed].some(other => overlaps(node, other))) {
+            node.x = Math.round(node.x + dx * 80); node.y = Math.round(node.y + dy * 80);
+        }
+        placed.push(node);
+    }
+    updateEdgeSides(data, focusState.rootId);
+    return movable;
+}
+
 export function captureOverrides(node: AllCanvasNodeData): void {
     const state = meta(node);
     if (!state) return;

@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const output = esbuild.buildSync({ entryPoints: ['src/MindmapModel.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
 const sandbox = { exports: {}, module: { exports: {} }, require };
 vm.runInNewContext(output.outputFiles[0].text, sandbox);
-const { placeNodes, meta, hiddenNodes, descendants, overlaps, treeEdge } = sandbox.module.exports;
+const { placeNodes, layoutFocusedSubtree, meta, hiddenNodes, descendants, overlaps, treeEdge } = sandbox.module.exports;
 
 function node(id, parentId, depth, expanded = false) {
     return { id, type: 'text', text: id, x: 0, y: 0, width: 250 + depth * 25, height: 70 + depth * 10,
@@ -91,6 +91,68 @@ for (const layout of ['horizontal', 'vertical', 'left', 'right', 'up', 'down']) 
 }
 console.log('PASS: six directional layouts, expand/collapse, subtree lanes, auto-height, stable anchors and root.');
 
+for (const layout of ['radial', 'horizontal', 'vertical', 'left', 'right', 'up', 'down']) {
+    const data = fixture(layout);
+    for (const entry of data.nodes) meta(entry).expanded = true;
+    if (layout === 'radial') {
+        const { assignAngles } = sandbox.module.exports;
+        assignAngles(data.nodes, 'root');
+    }
+    placeNodes(data, 'root', new Set(data.nodes.slice(1).map(n => n.id)));
+    const focus = data.nodes.find(n => n.id === 'b3');
+    const before = pos(focus);
+    const descendantsBefore = descendants(data.nodes, focus.id).map(n => [n.id, ...pos(n)]);
+    const moved = layoutFocusedSubtree(data, { focusId: focus.id, mode: 'hide' });
+    assert.deepEqual(pos(focus), before, `${layout}: focused anchor moved`);
+    assert.ok(moved.size > 0, `${layout}: no focused descendants moved`);
+    const changed = descendantsBefore.some(([id, x, y]) => {
+        const current = data.nodes.find(n => n.id === id);
+        return current.x !== x || current.y !== y;
+    });
+    if (layout === 'radial') assert.ok(changed, 'radial: focused projection retained the old narrow sector');
+    const visible = [focus, ...descendants(data.nodes, focus.id)].filter(n => !hiddenNodes(data.nodes).has(n.id));
+    for (let i = 0; i < visible.length; i++) for (let j = i + 1; j < visible.length; j++)
+        assert.ok(!overlaps(visible[i], visible[j], 0), `${layout}: focused overlap ${visible[i].id}/${visible[j].id}`);
+
+    const centered = fixture(layout);
+    for (const entry of centered.nodes) meta(entry).expanded = true;
+    if (layout === 'radial') sandbox.module.exports.assignAngles(centered.nodes, 'root');
+    placeNodes(centered, 'root', new Set(centered.nodes.slice(1).map(n => n.id)));
+    const rootBefore = pos(centered.nodes[0]);
+    layoutFocusedSubtree(centered, { focusId: 'root', mode: 'hide' });
+    assert.deepEqual(pos(centered.nodes[0]), rootBefore, `${layout}: centered focus moved the root`);
+    for (let i = 0; i < centered.nodes.length; i++) for (let j = i + 1; j < centered.nodes.length; j++)
+        assert.ok(!overlaps(centered.nodes[i], centered.nodes[j], 0), `${layout}: centered focus overlap ${centered.nodes[i].id}/${centered.nodes[j].id}`);
+}
+console.log('PASS: branch and center focus projections for all seven layouts, stable anchors and no subtree overlaps.');
+
+{
+    const hiddenProjection = fixture('right');
+    for (const entry of hiddenProjection.nodes) meta(entry).expanded = true;
+    placeNodes(hiddenProjection, 'root', new Set(hiddenProjection.nodes.slice(1).map(n => n.id)));
+    layoutFocusedSubtree(hiddenProjection, { focusId: 'b3', mode: 'hide' });
+    const target = hiddenProjection.nodes.find(n => n.id === 'b3c0');
+    const dimProjection = fixture('right');
+    for (const entry of dimProjection.nodes) meta(entry).expanded = true;
+    placeNodes(dimProjection, 'root', new Set(dimProjection.nodes.slice(1).map(n => n.id)));
+    const obstacle = dimProjection.nodes.find(n => n.id === 'b4');
+    obstacle.x = target.x; obstacle.y = target.y;
+    layoutFocusedSubtree(dimProjection, { focusId: 'b3', mode: 'dim' });
+    assert.ok(!overlaps(dimProjection.nodes.find(n => n.id === 'b3c0'), obstacle), 'dim focus overlaps a background card');
+}
+console.log('PASS: dim focus avoids visible background cards.');
+
+const i18nOutput = esbuild.buildSync({ entryPoints: ['src/i18n.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
+const i18nSandbox = { exports: {}, module: { exports: {} }, require };
+vm.runInNewContext(i18nOutput.outputFiles[0].text, i18nSandbox);
+const { setLanguage, t } = i18nSandbox.module.exports;
+setLanguage('auto', 'zh-CN');
+assert.equal(t('中心'), '中心', 'Simplified Chinese auto locale');
+setLanguage('auto', 'zh-TW');
+assert.equal(t('中心'), 'Central Topic', 'unsupported locale falls back to English');
+assert.equal(t('移除 {count} 个旧节点', { count: 3 }), 'Remove 3 old nodes', 'English interpolation');
+console.log('PASS: automatic language selection and translated interpolation.');
+
 // Exercise reading state and persistence with a small Canvas/DOM double.
 const featureOutput = esbuild.buildSync({ entryPoints: ['src/CanvasMindmap.ts'], bundle: true,
     platform: 'node', format: 'cjs', external: ['obsidian', 'monkey-around'], write: false });
@@ -111,6 +173,7 @@ class Element {
     createSpan() { return this.appendChild(new Element()); }
     createEl() { return this.appendChild(new Element()); }
     addEventListener() {}
+    appendText() {}
     setAttribute() {}
     remove() { this.isConnected = false; }
 }
@@ -134,13 +197,14 @@ function canvasDouble(data) {
         } };
     canvas.setData(data); return canvas;
 }
-const plugin = { settings: { focusMode: 'hide' }, saveSettings: async () => {} };
+const plugin = { settings: { focusMode: 'hide', compactFocus: true }, saveSettings: async () => {} };
 const feature = new featureSandbox.module.exports.CanvasMindmap(plugin);
 const canvas = canvasDouble(fixture('right'));
 placeNodes(canvas.data, 'root', new Set(canvas.data.nodes.map(n => n.id)));
 canvas.setData(canvas.data);
 canvas.select(canvas.nodes.get('b3'));
 const originalViewport = { ...canvas.viewport };
+const originalPositions = new Map(canvas.data.nodes.map(n => [n.id, pos(n)]));
 feature.focusBranch(canvas, 'b3');
 assert.ok(feature.displayState(canvas, canvas.data).hidden.has('b1'), 'focus hides other branches');
 assert.ok(!feature.displayState(canvas, canvas.data).hidden.has('root'), 'focus keeps ancestor path');
@@ -149,6 +213,7 @@ assert.equal(meta(canvas.nodes.get('b3').getData()).expanded, false, 'focus expa
 assert.ok(!feature.displayState(canvas, canvas.data).hidden.has('b3c0'), 'focus expansion is visible');
 feature.exitFocus(canvas);
 assert.deepEqual(canvas.viewport, originalViewport, 'exit restores exact viewport');
+for (const entry of canvas.data.nodes) assert.deepEqual(pos(entry), originalPositions.get(entry.id), `exit restores ${entry.id} position`);
 assert.ok(feature.displayState(canvas, canvas.data).hidden.has('b3c0'), 'exit restores folds');
 assert.ok(canvas.selection.has(canvas.nodes.get('b3')), 'exit restores selection');
 plugin.settings.focusMode = 'dim';

@@ -1,8 +1,9 @@
-import { Menu, Plugin, PluginSettingTab } from 'obsidian';
+import { Menu, moment, Plugin, PluginSettingTab } from 'obsidian';
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
-import { LAYOUT_LABELS, MindmapSettings } from './src/settings';
+import { LAYOUT_LABEL_KEYS, MindmapSettings } from './src/settings';
+import { setLanguage } from './src/i18n';
 
 export default class CanvasMindMapPlugin extends Plugin {
     settings: MindmapSettings;
@@ -14,8 +15,11 @@ export default class CanvasMindMapPlugin extends Plugin {
             mindmapLevels: normalizeMindmapLevels(saved.mindmapLevels),
             lastMode: saved.lastMode === 'body' ? 'body' : 'title',
             focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
-            lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABELS, saved.lastLayout) ? saved.lastLayout : 'radial',
+            compactFocus: saved.compactFocus !== false,
+            language: saved.language === 'en' || saved.language === 'zh-CN' ? saved.language : 'auto',
+            lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'radial',
         };
+        setLanguage(this.settings.language, moment.locale());
         this.mindmap = new CanvasMindmap(this);
         this.mindmap.register();
         this.registerEvent(this.app.workspace.on('file-menu', (menu: Menu) => this.mindmap.addSelectionMenu(menu)));
@@ -56,6 +60,11 @@ export default class CanvasMindMapPlugin extends Plugin {
     }
 
     async saveSettings(): Promise<void> { await this.saveData(this.settings); }
+
+    refreshLanguage(): void {
+        setLanguage(this.settings.language, moment.locale());
+        this.mindmap.refreshLanguage();
+    }
 }
 
 class MindmapSettingTab extends PluginSettingTab {

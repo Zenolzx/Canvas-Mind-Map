@@ -32,6 +32,23 @@
     white-space: nowrap;
 }
 
+.cmm-reading-bar .cmm-focus-compact {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.cmm-focus-layout .canvas-node {
+    transition: transform 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cmm-focus-layout .canvas-node {
+        transition: none;
+    }
+}
+
 .canvas-node > .cmm-mindmap-toggle {
     position: absolute;
     left: 50%;

@@ -1,3 +1,5 @@
+import { t, type LanguageSetting } from './i18n';
+
 export interface MindmapLevelStyle {
     width: number;
     height: number;
@@ -13,13 +15,18 @@ export const DEFAULT_MINDMAP_LEVELS: MindmapLevelStyle[] = Array.from({ length: 
 }));
 
 export type MindmapLayout = 'radial' | 'horizontal' | 'vertical' | 'right' | 'left' | 'down' | 'up';
-export const LAYOUT_LABELS: Record<MindmapLayout, string> = {
+export const LAYOUT_LABEL_KEYS: Record<MindmapLayout, string> = {
     radial: '中心向四周', horizontal: '左右双侧', vertical: '上下双侧',
     right: '向右', left: '向左', down: '向下', up: '向上',
 };
+export function layoutLabels(): Record<MindmapLayout, string> {
+    return Object.fromEntries(Object.entries(LAYOUT_LABEL_KEYS).map(([layout, label]) => [layout, t(label)])) as Record<MindmapLayout, string>;
+}
 export interface MindmapSettings {
     mindmapLevels: MindmapLevelStyle[];
     lastMode: 'title' | 'body';
     lastLayout: MindmapLayout;
     focusMode: 'hide' | 'dim';
+    compactFocus: boolean;
+    language: LanguageSetting;
 }

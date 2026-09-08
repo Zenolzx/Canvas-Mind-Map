@@ -1,13 +1,14 @@
 import { FuzzySuggestModal, ItemView, Menu, Modal, Notice, Setting } from 'obsidian';
 import { around } from 'monkey-around';
-import type { AllCanvasNodeData, CanvasData } from 'obsidian/canvas';
+import type { AllCanvasNodeData, CanvasData, NodeSide } from 'obsidian/canvas';
 import type CanvasMindMapPlugin from '../main';
 import type { Canvas, CanvasEdge, CanvasNode, CanvasView } from '../Canvas';
 import { randomId, sanitizeHeading } from './utils';
-import { DEFAULT_MINDMAP_LEVELS, MindmapLevelStyle, MindmapLayout, LAYOUT_LABELS } from './settings';
+import { DEFAULT_MINDMAP_LEVELS, layoutLabels, MindmapLevelStyle, MindmapLayout } from './settings';
+import { languageOptions, t } from './i18n';
 import {
     applyStyle, assignAngles, captureOverrides, descendants, hiddenNodes, meta, MINDMAP_KEY,
-    MindmapMeta, parseHeadings, placeNodes, treeEdge, treeNodes,
+    layoutFocusedSubtree, MindmapMeta, parseHeadings, placeNodes, treeEdge, treeNodes,
 } from './MindmapModel';
 
 const HIDDEN = 'cmm-mindmap-hidden';
@@ -19,8 +20,12 @@ interface ReadingFocus {
     rootId: string;
     mode: 'hide' | 'dim';
     expanded: Map<string, boolean>;
+    savedExpanded: Map<string, boolean>;
     viewport: { x: number; y: number; zoom: number };
     selection: string[];
+    compact: boolean;
+    positions: Map<string, { x: number; y: number }>;
+    edges: Map<string, { fromSide?: NodeSide; toSide?: NodeSide }>;
     bar?: HTMLElement;
 }
 
@@ -32,6 +37,7 @@ export class CanvasMindmap {
     private menuItems = new WeakMap<Menu, Set<string>>();
     private refreshing = new WeakSet<Canvas>();
     private fitting = new WeakSet<Canvas>();
+    private projecting = new WeakSet<Canvas>();
     private pendingPlacement = new Map<Canvas, Set<string>>();
     private placementAnchors = new WeakMap<Canvas, string>();
     private reading = new Map<Canvas, ReadingFocus>();
@@ -69,7 +75,19 @@ export class CanvasMindmap {
                 requestSave: (next: Canvas['requestSave']) => function(this: Canvas, history?: boolean) {
                     // Native auto-fit saves repeatedly while measuring. Keep it in the
                     // originating operation's undo step instead of adding resize steps.
-                    return next.call(this, feature.fitting.has(this) ? false : history);
+                    const focus = feature.reading.get(this);
+                    if (!focus?.compact || feature.projecting.has(this)) return next.call(this, feature.fitting.has(this) ? false : history);
+                    const projection = JSON.parse(JSON.stringify(this.getData())) as CanvasData;
+                    const persistent = feature.persistentData(this, JSON.parse(JSON.stringify(this.getData())) as CanvasData, false);
+                    feature.projecting.add(this);
+                    try {
+                        this.importData(persistent);
+                        const result = next.call(this, feature.fitting.has(this) ? false : history);
+                        // Keep native/manual movement visible for this focus session;
+                        // only the restored geometry was handed to Canvas persistence.
+                        this.importData(projection);
+                        return result;
+                    } finally { feature.projecting.delete(this); }
                 },
                 updateSelection: (next: Canvas['updateSelection']) => function(this: Canvas, callback: () => void) {
                     return next.call(this, () => {
@@ -88,24 +106,24 @@ export class CanvasMindmap {
         this.plugin.registerEvent(this.plugin.app.workspace.on('layout-change', () => {
             for (const node of this.observers.keys()) if (!node.nodeEl.isConnected) this.unobserve(node);
             for (const [canvas, focus] of this.reading) if (!canvas.view.containerEl.isConnected) {
-                focus.bar?.remove(); this.reading.delete(canvas);
+                focus.bar?.remove(); this.exitFocus(canvas);
             }
             this.eachCanvas(canvas => this.schedule(canvas));
         }));
-        this.command('mindmap-create', '生成可折叠思维导图', (canvas, node) => this.generationDialog(canvas, node), true);
-        this.command('mindmap-expand', '思维导图：展开下一级', (canvas, node) => this.fold(canvas, node.id, true));
-        this.command('mindmap-collapse', '思维导图：收起分支', (canvas, node) => this.fold(canvas, node.id, false));
-        this.command('mindmap-depth', '思维导图：显示到第 N 层', (canvas, node) => this.depthDialog(canvas, node.id));
-        this.command('mindmap-center', '思维导图：返回中心', (canvas, node) => this.center(canvas, node.id), false, true);
-        this.command('mindmap-layout', '思维导图：重新排列整图', (canvas, node) => this.relayout(canvas, node.id));
-        this.command('mindmap-layout-select', '思维导图：切换布局', (canvas, node) => this.layoutDialog(canvas, node.id));
-        this.command('mindmap-refresh', '思维导图：从原笔记刷新', (canvas, node) => this.refresh(canvas, node.id));
-        this.command('mindmap-template', '思维导图：应用层级模板', (canvas, node) => this.applyTemplate(canvas, node.id));
-        this.command('mindmap-style', '思维导图：设置当前节点外观', (canvas, node) => this.styleDialog(canvas, node.id));
-        this.command('mindmap-focus', '思维导图：聚焦当前分支', (canvas, node) => this.focusBranch(canvas, node.id), false, true);
-        this.command('mindmap-overview', '思维导图：查看全貌', (canvas, node) => this.overview(canvas, node.id), false, true);
-        this.command('mindmap-search', '思维导图：搜索标题', (canvas, node) => this.search(canvas, node.id), false, true);
-        this.plugin.addCommand({ id: 'mindmap-focus-exit', name: '思维导图：退出分支聚焦', checkCallback: checking => {
+        this.command('mindmap-create', t('生成可折叠思维导图'), (canvas, node) => this.generationDialog(canvas, node), true);
+        this.command('mindmap-expand', t('思维导图：展开下一级'), (canvas, node) => this.fold(canvas, node.id, true));
+        this.command('mindmap-collapse', t('思维导图：收起分支'), (canvas, node) => this.fold(canvas, node.id, false));
+        this.command('mindmap-depth', t('思维导图：显示到第 N 层'), (canvas, node) => this.depthDialog(canvas, node.id));
+        this.command('mindmap-center', t('思维导图：返回中心'), (canvas, node) => this.center(canvas, node.id), false, true);
+        this.command('mindmap-layout', t('思维导图：重新排列整图'), (canvas, node) => this.relayout(canvas, node.id));
+        this.command('mindmap-layout-select', t('思维导图：切换布局'), (canvas, node) => this.layoutDialog(canvas, node.id));
+        this.command('mindmap-refresh', t('思维导图：从原笔记刷新'), (canvas, node) => this.refresh(canvas, node.id));
+        this.command('mindmap-template', t('思维导图：应用层级模板'), (canvas, node) => this.applyTemplate(canvas, node.id));
+        this.command('mindmap-style', t('思维导图：设置当前节点外观'), (canvas, node) => this.styleDialog(canvas, node.id));
+        this.command('mindmap-focus', t('思维导图：聚焦当前分支'), (canvas, node) => this.focusBranch(canvas, node.id), false, true);
+        this.command('mindmap-overview', t('思维导图：查看全貌'), (canvas, node) => this.overview(canvas, node.id), false, true);
+        this.command('mindmap-search', t('思维导图：搜索标题'), (canvas, node) => this.search(canvas, node.id), false, true);
+        this.plugin.addCommand({ id: 'mindmap-focus-exit', name: t('思维导图：退出分支聚焦'), checkCallback: checking => {
             const view = this.plugin.app.workspace.getActiveViewOfType(ItemView);
             const canvas = view?.getViewType() === 'canvas' ? (view as CanvasView).canvas : undefined;
             if (!canvas || !this.reading.has(canvas)) return false;
@@ -165,35 +183,40 @@ export class CanvasMindmap {
             entry.setTitle(title).setSection('canvas-mind-map').onClick(() => this.run(action)));
         if (!state) {
             if (canvas.readonly || !this.isSource(node)) return;
-            item('生成可折叠思维导图', () => this.generationDialog(canvas, node));
+            item(t('生成可折叠思维导图'), () => this.generationDialog(canvas, node));
             return;
         }
-        item('返回思维导图中心', () => this.center(canvas, node.id));
-        item('聚焦当前分支', () => this.focusBranch(canvas, node.id));
-        if (this.reading.has(canvas)) item('退出分支聚焦', () => this.exitFocus(canvas));
-        item('查看思维导图全貌', () => this.overview(canvas, node.id));
-        item('搜索标题（包含折叠节点）…', () => this.search(canvas, node.id));
+        item(t('返回思维导图中心'), () => this.center(canvas, node.id));
+        item(t('聚焦当前分支'), () => this.focusBranch(canvas, node.id));
+        if (this.reading.has(canvas)) item(t('退出分支聚焦'), () => this.exitFocus(canvas));
+        item(t('查看思维导图全貌'), () => this.overview(canvas, node.id));
+        item(t('搜索标题（包含折叠节点）…'), () => this.search(canvas, node.id));
         if (canvas.readonly) return;
-        item('展开下一级标题', () => this.fold(canvas, node.id, true));
-        item('收起整个分支', () => this.fold(canvas, node.id, false));
-        item('显示到第 N 层…', () => this.depthDialog(canvas, node.id));
-        item('重新排列整张思维导图', () => this.relayout(canvas, node.id));
-        item('切换思维导图布局…', () => this.layoutDialog(canvas, node.id));
-        item('从原笔记刷新思维导图', () => this.refresh(canvas, node.id));
-        item('应用层级模板（保留单节点覆盖）', () => this.applyTemplate(canvas, node.id));
-        item('设置此节点外观…', () => this.styleDialog(canvas, node.id));
+        item(t('展开下一级标题'), () => this.fold(canvas, node.id, true));
+        item(t('收起整个分支'), () => this.fold(canvas, node.id, false));
+        item(t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
+        item(t('重新排列整张思维导图'), () => this.relayout(canvas, node.id));
+        item(t('切换思维导图布局…'), () => this.layoutDialog(canvas, node.id));
+        item(t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
+        item(t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
+        item(t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
     }
 
     private run(action: () => void | Promise<void>): void {
         void Promise.resolve().then(action).catch(error => {
-            console.error('Enhanced Canvas: mindmap action failed', error);
-            new Notice('思维导图操作失败，请查看控制台。');
+            console.error('Canvas Mind Map: action failed', error);
+            new Notice(t('思维导图操作失败，请查看控制台。'));
         });
     }
 
     private readData(canvas: Canvas): CanvasData {
         // getData retains unknown-field object references; never mutate a history snapshot.
         return this.readingData(canvas, JSON.parse(JSON.stringify(canvas.getData())) as CanvasData);
+    }
+
+    refreshLanguage(): void {
+        for (const [canvas, focus] of this.reading) this.buildFocusBar(canvas, focus);
+        this.eachCanvas(canvas => this.render(canvas, false));
     }
 
     /** Focus folding is view-local: it never changes the serialized expansion flags. */
@@ -207,16 +230,26 @@ export class CanvasMindmap {
         }) };
     }
 
-    private persistentData(canvas: Canvas, data: CanvasData): CanvasData {
+    private persistentData(canvas: Canvas, data: CanvasData, captureExpanded = true): CanvasData {
         const focus = this.reading.get(canvas);
         if (!focus) return data;
-        const saved = new Map(canvas.getData().nodes.map(node => [node.id, meta(node)?.expanded]));
         for (const node of data.nodes) {
             const state = meta(node);
             if (state?.rootId !== focus.rootId) continue;
-            focus.expanded.set(node.id, state.expanded);
-            const original = saved.get(node.id);
-            if (original !== undefined) state.expanded = original;
+            if (captureExpanded) focus.expanded.set(node.id, state.expanded);
+            if (!focus.savedExpanded.has(node.id)) {
+                focus.savedExpanded.set(node.id, state.expanded);
+                if (!focus.expanded.has(node.id)) focus.expanded.set(node.id, state.expanded);
+            }
+            state.expanded = focus.savedExpanded.get(node.id)!;
+            const position = focus.positions.get(node.id);
+            if (position) { node.x = position.x; node.y = position.y; }
+            else focus.positions.set(node.id, { x: node.x, y: node.y });
+        }
+        for (const edge of data.edges) {
+            const original = focus.edges.get(edge.id);
+            if (original) { edge.fromSide = original.fromSide; edge.toSide = original.toSide; }
+            else focus.edges.set(edge.id, { fromSide: edge.fromSide, toSide: edge.toSide });
         }
         return data;
     }
@@ -231,6 +264,7 @@ export class CanvasMindmap {
         }
         canvas.setData(this.persistentData(canvas, data));
         canvas.requestSave(false); // setData already pushes one native undo entry.
+        if (this.reading.get(canvas)?.compact) this.applyFocusLayout(canvas, false);
         this.render(canvas, false);
         this.schedule(canvas);
     }
@@ -263,7 +297,7 @@ export class CanvasMindmap {
         return sections.map((section, index) => {
             const style = this.style(section.depth);
             const link = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(
-                sourceFile, canvas.view.file.path, `#${section.title}`, section.title || '无标题') : section.title || '无标题';
+                sourceFile, canvas.view.file.path, `#${section.title}`, section.title || t('无标题')) : section.title || t('无标题');
             const text = mode === 'body' ? section.content : `**${link}**`;
             const state: MindmapMeta = {
                 version: 1, nodeId: ids[index], rootId: root.id, parentId: section.parent < 0 ? root.id : ids[section.parent],
@@ -283,14 +317,14 @@ export class CanvasMindmap {
     private generationDialog(canvas: Canvas, node: CanvasNode): void {
         const dialog = new Modal(this.plugin.app);
         let mode = this.plugin.settings.lastMode, layout = this.plugin.settings.lastLayout;
-        dialog.titleEl.setText('生成可折叠思维导图');
-        new Setting(dialog.contentEl).setName('节点内容').addDropdown(dropdown => dropdown
-            .addOptions({ title: '仅标题', body: '含正文' }).setValue(mode)
+        dialog.titleEl.setText(t('生成可折叠思维导图'));
+        new Setting(dialog.contentEl).setName(t('节点内容')).addDropdown(dropdown => dropdown
+            .addOptions({ title: t('仅标题'), body: t('含正文') }).setValue(mode)
             .onChange(value => { mode = value as 'title' | 'body'; }));
-        new Setting(dialog.contentEl).setName('布局').addDropdown(dropdown => dropdown
-            .addOptions(LAYOUT_LABELS).setValue(layout).onChange(value => { layout = value as MindmapLayout; }));
-        new Setting(dialog.contentEl).addButton(button => button.setButtonText('取消').onClick(() => dialog.close()))
-            .addButton(button => button.setButtonText('生成').setCta().onClick(() => {
+        new Setting(dialog.contentEl).setName(t('布局')).addDropdown(dropdown => dropdown
+            .addOptions(layoutLabels()).setValue(layout).onChange(value => { layout = value as MindmapLayout; }));
+        new Setting(dialog.contentEl).addButton(button => button.setButtonText(t('取消')).onClick(() => dialog.close()))
+            .addButton(button => button.setButtonText(t('生成')).setCta().onClick(() => {
                 dialog.close();
                 this.run(async () => {
                     if (this.stopped || canvas.readonly || canvas.nodes.get(node.id) !== node) return;
@@ -309,12 +343,12 @@ export class CanvasMindmap {
         if (!root || canvas.readonly) return;
         const dialog = new Modal(this.plugin.app);
         let layout = meta(root.getData())?.layout ?? 'radial';
-        dialog.titleEl.setText('切换思维导图布局');
-        new Setting(dialog.contentEl).setName('布局').setDesc('重新排列整棵导图，保留内容、样式和折叠状态。可撤销。')
-            .addDropdown(dropdown => dropdown.addOptions(LAYOUT_LABELS).setValue(layout)
+        dialog.titleEl.setText(t('切换思维导图布局'));
+        new Setting(dialog.contentEl).setName(t('布局')).setDesc(t('重新排列整棵导图，保留内容、样式和折叠状态。可撤销。'))
+            .addDropdown(dropdown => dropdown.addOptions(layoutLabels()).setValue(layout)
                 .onChange(value => { layout = value as MindmapLayout; }));
-        new Setting(dialog.contentEl).addButton(button => button.setButtonText('取消').onClick(() => dialog.close()))
-            .addButton(button => button.setButtonText('应用布局').setCta().onClick(() => {
+        new Setting(dialog.contentEl).addButton(button => button.setButtonText(t('取消')).onClick(() => dialog.close()))
+            .addButton(button => button.setButtonText(t('应用布局')).setCta().onClick(() => {
                 dialog.close();
                 this.run(() => this.relayout(canvas, id, layout));
             }));
@@ -326,12 +360,12 @@ export class CanvasMindmap {
         const raw = await this.source(root);
         if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || meta(root.getData())) return;
         const nodes = this.makeNodes(canvas, root, raw, mode);
-        if (!nodes.length) { new Notice('没有找到可生成思维导图的标题。'); return; }
+        if (!nodes.length) { new Notice(t('没有找到可生成思维导图的标题。')); return; }
         const data = this.readData(canvas);
         const rootData = data.nodes.find(node => node.id === root.id)!;
         const rootStyle = { width: root.width, height: root.height, color: rootData.color ?? '', autoHeight: false };
         rootData[MINDMAP_KEY] = {
-            version: 1, nodeId: root.id, rootId: root.id, depth: 0, key: '', title: root.file?.basename ?? '中心',
+            version: 1, nodeId: root.id, rootId: root.id, depth: 0, key: '', title: root.file?.basename ?? t('中心'),
             expanded: true, angle: 0, placed: true, mode, layout, style: rootStyle,
             applied: { width: root.width, height: root.height, color: rootData.color ?? '' },
             overrides: { width: true, height: true, color: true },
@@ -344,7 +378,7 @@ export class CanvasMindmap {
         placeNodes(data, centerId, new Set(nodes.map(node => node.id)));
         this.commit(canvas, data, new Set(nodes.map(node => node.id)));
         this.center(canvas, centerId);
-        new Notice(`已生成思维导图，共 ${treeNodes(data, centerId).length} 个节点，显示到第 2 层。`);
+        new Notice(t('已生成思维导图，共 {count} 个节点，显示到第 2 层。', { count: treeNodes(data, centerId).length }));
     }
 
     private fold(canvas: Canvas, id: string, expanded: boolean): void {
@@ -366,10 +400,10 @@ export class CanvasMindmap {
     private depthDialog(canvas: Canvas, id: string): void {
         let depth = 2;
         const dialog = new Modal(this.plugin.app);
-        dialog.setTitle('显示到第几层');
-        new Setting(dialog.contentEl).setName('中心为第 0 层').setDesc('统一重设整张导图的展开状态。')
+        dialog.setTitle(t('显示到第几层'));
+        new Setting(dialog.contentEl).setName(t('中心为第 0 层')).setDesc(t('统一重设整张导图的展开状态。'))
             .addSlider(slider => slider.setLimits(0, 6, 1).setValue(depth).setDynamicTooltip().onChange(value => { depth = value; }));
-        new Setting(dialog.contentEl).addButton(button => button.setButtonText('应用').setCta().onClick(() => {
+        new Setting(dialog.contentEl).addButton(button => button.setButtonText(t('应用')).setCta().onClick(() => {
             const data = this.readData(canvas), selected = data.nodes.find(node => node.id === id);
             const state = selected && meta(selected);
             if (state) {
@@ -390,7 +424,7 @@ export class CanvasMindmap {
     private center(canvas: Canvas, id: string): void {
         const state = canvas.nodes.get(id) && meta(canvas.nodes.get(id)!.getData());
         const root = state && canvas.nodes.get(state.rootId);
-        if (!root) { new Notice('中心节点已不存在。'); return; }
+        if (!root) { new Notice(t('中心节点已不存在。')); return; }
         canvas.deselectAll(); canvas.select(root); canvas.zoomToSelection();
     }
 
@@ -433,39 +467,109 @@ export class CanvasMindmap {
         let focus = this.reading.get(canvas);
         if (focus && focus.rootId !== state.rootId) { this.exitFocus(canvas); focus = undefined; }
         if (!focus) {
+            const expanded = new Map(treeNodes(data, state.rootId).map(node => [node.id, meta(node)!.expanded]));
             focus = { id, rootId: state.rootId, mode: this.plugin.settings.focusMode,
-                expanded: new Map(treeNodes(data, state.rootId).map(node => [node.id, meta(node)!.expanded])),
+                expanded: new Map(expanded), savedExpanded: new Map(expanded), compact: this.plugin.settings.compactFocus,
+                positions: new Map(data.nodes.map(node => [node.id, { x: node.x, y: node.y }])),
+                edges: new Map(data.edges.map(edge => [edge.id, { fromSide: edge.fromSide, toSide: edge.toSide }])),
                 viewport: { ...canvas.getState() }, selection: [...canvas.selection].map(node => node.id) };
             this.reading.set(canvas, focus);
         }
         focus.id = id;
+        this.buildFocusBar(canvas, focus);
+        this.applyFocusLayout(canvas, true);
+    }
+
+    private buildFocusBar(canvas: Canvas, focus: ReadingFocus): void {
+        const node = canvas.nodes.get(focus.id), state = node && meta(node.getData());
+        if (!state) return;
         focus.bar?.remove();
         const host = canvas.view.containerEl.querySelector<HTMLElement>('.view-content') ?? canvas.view.containerEl;
         const bar = host.createDiv({ cls: 'cmm-reading-bar' });
         focus.bar = bar;
-        bar.createSpan({ text: `聚焦：${state.title || '无标题'}` });
-        const select = bar.createEl('select', { attr: { 'aria-label': '其他分支的显示方式' } });
-        select.createEl('option', { text: '临时隐藏其他分支', value: 'hide' });
-        select.createEl('option', { text: '淡化其他分支', value: 'dim' });
+        bar.createSpan({ text: t('聚焦：{title}', { title: state.title || t('无标题') }) });
+        const select = bar.createEl('select', { attr: { 'aria-label': t('其他分支的显示方式') } });
+        select.createEl('option', { text: t('临时隐藏其他分支'), value: 'hide' });
+        select.createEl('option', { text: t('淡化其他分支'), value: 'dim' });
         select.value = focus.mode;
         select.addEventListener('change', () => {
-            focus!.mode = select.value === 'dim' ? 'dim' : 'hide';
-            this.plugin.settings.focusMode = focus!.mode;
-            void this.plugin.saveSettings(); this.render(canvas, false); this.schedule(canvas);
+            focus.mode = select.value === 'dim' ? 'dim' : 'hide';
+            this.plugin.settings.focusMode = focus.mode;
+            void this.plugin.saveSettings(); this.applyFocusLayout(canvas, true);
         });
-        const exit = bar.createEl('button', { text: '退出聚焦' });
+        const compactLabel = bar.createEl('label', { cls: 'cmm-focus-compact' });
+        const compact = compactLabel.createEl('input', { attr: { type: 'checkbox' } });
+        compact.checked = focus.compact;
+        compactLabel.appendText(t('紧凑布局'));
+        compact.addEventListener('change', () => { focus.compact = compact.checked; this.applyFocusLayout(canvas, true); });
+        const exit = bar.createEl('button', { text: t('退出聚焦') });
         exit.addEventListener('click', () => this.exitFocus(canvas));
-        const search = bar.createEl('button', { text: '搜索标题' });
-        search.addEventListener('click', () => this.search(canvas, focus!.id));
+        const search = bar.createEl('button', { text: t('搜索标题') });
+        search.addEventListener('click', () => this.search(canvas, focus.id));
         for (const type of ['pointerdown', 'dblclick', 'wheel']) bar.addEventListener(type, event => event.stopPropagation());
-        this.render(canvas, false); this.schedule(canvas);
-        this.zoomNodes(canvas, [id, ...descendants(treeNodes(data, state.rootId), id).map(node => node.id)], id);
+    }
+
+    private restoreFocusGeometry(data: CanvasData, focus: ReadingFocus): void {
+        for (const node of data.nodes) {
+            const position = focus.positions.get(node.id);
+            if (position) { node.x = position.x; node.y = position.y; }
+            else focus.positions.set(node.id, { x: node.x, y: node.y });
+        }
+        for (const edge of data.edges) {
+            const original = focus.edges.get(edge.id);
+            if (original) { edge.fromSide = original.fromSide; edge.toSide = original.toSide; }
+            else focus.edges.set(edge.id, { fromSide: edge.fromSide, toSide: edge.toSide });
+        }
+    }
+
+    private applyFocusLayout(canvas: Canvas, zoom: boolean): void {
+        const focus = this.reading.get(canvas);
+        if (!focus || this.stopped) return;
+        const data = this.readData(canvas);
+        this.restoreFocusGeometry(data, focus);
+        let moved = new Set<string>();
+        try {
+            if (focus.compact) moved = layoutFocusedSubtree(data, { focusId: focus.id, mode: focus.mode });
+            for (const node of data.nodes) {
+                const state = meta(node), saved = focus.savedExpanded.get(node.id);
+                if (state?.rootId === focus.rootId && saved !== undefined) state.expanded = saved;
+            }
+            canvas.view.containerEl.classList.toggle('cmm-focus-layout', focus.compact && moved.size <= 200);
+            const alreadyProjecting = this.projecting.has(canvas);
+            this.projecting.add(canvas);
+            try { canvas.importData(data); } finally { if (!alreadyProjecting) this.projecting.delete(canvas); }
+            this.render(canvas, false); this.schedule(canvas);
+            if (zoom) {
+                const projected = this.readData(canvas);
+                const ids = [focus.id, ...descendants(treeNodes(projected, focus.rootId), focus.id).map(node => node.id)];
+                this.zoomNodes(canvas, ids, focus.id);
+            }
+        } catch (error) {
+            console.error('Canvas Mind Map: focus layout failed', error);
+            this.restoreFocusGeometry(data, focus);
+            for (const node of data.nodes) {
+                const state = meta(node), saved = focus.savedExpanded.get(node.id);
+                if (state?.rootId === focus.rootId && saved !== undefined) state.expanded = saved;
+            }
+            const alreadyProjecting = this.projecting.has(canvas);
+            this.projecting.add(canvas);
+            try { canvas.importData(data); } finally { if (!alreadyProjecting) this.projecting.delete(canvas); }
+            focus.compact = false;
+            canvas.view.containerEl.classList.remove('cmm-focus-layout');
+            new Notice(t('聚焦布局失败，已恢复原位置。'));
+        }
     }
 
     private exitFocus(canvas: Canvas): void {
         const focus = this.reading.get(canvas);
         if (!focus) return;
+        const persistent = this.persistentData(canvas, JSON.parse(JSON.stringify(canvas.getData())) as CanvasData, false);
         this.reading.delete(canvas); focus.bar?.remove();
+        const alreadyProjecting = this.projecting.has(canvas);
+        this.projecting.add(canvas);
+        try { canvas.importData(persistent); } finally { if (!alreadyProjecting) this.projecting.delete(canvas); }
+        const container = canvas.view.containerEl;
+        container.ownerDocument.defaultView?.setTimeout(() => container.classList.remove('cmm-focus-layout'), 220);
         this.render(canvas, false); this.schedule(canvas);
         canvas.deselectAll();
         for (const id of focus.selection) {
@@ -496,7 +600,7 @@ export class CanvasMindmap {
             getItemText(item: { label: string }) { return item.label; }
             onChooseItem(item: { id: string }) { feature.run(() => feature.revealResult(canvas, item.id)); }
         }(this.plugin.app);
-        dialog.setPlaceholder('搜索标题或章节路径（包含折叠节点）'); dialog.open();
+        dialog.setPlaceholder(t('搜索标题或章节路径（包含折叠节点）')); dialog.open();
     }
 
     private revealResult(canvas: Canvas, id: string): void {
@@ -504,9 +608,9 @@ export class CanvasMindmap {
         this.exitFocus(canvas);
         const data = this.readData(canvas), lookup = new Map(data.nodes.map(node => [node.id, node]));
         const node = lookup.get(id), state = node && meta(node);
-        if (!state) { new Notice('该标题已不存在，请重新搜索。'); return; }
+        if (!state) { new Notice(t('该标题已不存在，请重新搜索。')); return; }
         const before = hiddenNodes(data.nodes);
-        if (canvas.readonly && before.has(id)) { new Notice('画布为只读，无法展开折叠路径。'); return; }
+        if (canvas.readonly && before.has(id)) { new Notice(t('画布为只读，无法展开折叠路径。')); return; }
         let parentId = state.parentId;
         const seen = new Set([id]);
         while (parentId && !seen.has(parentId)) {
@@ -593,7 +697,7 @@ export class CanvasMindmap {
         if (!state) return;
         for (const node of treeNodes(data, state.rootId)) applyStyle(node, this.style(meta(node)!.depth));
         this.commit(canvas, data);
-        new Notice('已应用层级模板，保留单节点覆盖。');
+        new Notice(t('已应用层级模板，保留单节点覆盖。'));
     }
 
     private styleDialog(canvas: Canvas, id: string): void {
@@ -602,9 +706,9 @@ export class CanvasMindmap {
         const style = { ...state.style, width: node.width, height: node.height, color: node.color ?? '',
             autoHeight: state.style.autoHeight && !state.overrides?.height && node.height === state.applied.height };
         const dialog = new Modal(this.plugin.app);
-        dialog.setTitle('此节点的外观');
+        dialog.setTitle(t('此节点的外观'));
         styleFields(dialog.contentEl, style, () => {});
-        new Setting(dialog.contentEl).addButton(button => button.setButtonText('保存').setCta().onClick(() => {
+        new Setting(dialog.contentEl).addButton(button => button.setButtonText(t('保存')).setCta().onClick(() => {
             const data = this.readData(canvas), current = data.nodes.find(item => item.id === id);
             const currentState = current && meta(current);
             if (current && currentState) {
@@ -615,7 +719,7 @@ export class CanvasMindmap {
                 this.commit(canvas, data);
             }
             dialog.close();
-        })).addButton(button => button.setButtonText('恢复层级模板').onClick(() => {
+        })).addButton(button => button.setButtonText(t('恢复层级模板')).onClick(() => {
             const data = this.readData(canvas), current = data.nodes.find(item => item.id === id);
             const currentState = current && meta(current);
             if (current && currentState) {
@@ -635,7 +739,7 @@ export class CanvasMindmap {
         try {
             const selected = canvas.nodes.get(id)?.getData(), state = selected && meta(selected);
             const root = state && canvas.nodes.get(state.rootId);
-            if (!root || !state) { new Notice('中心节点已不存在，无法刷新。'); return; }
+            if (!root || !state) { new Notice(t('中心节点已不存在，无法刷新。')); return; }
             const raw = await this.source(root);
             if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || !meta(root.getData())) return;
             const snapshot = JSON.stringify(canvas.getData());
@@ -670,7 +774,7 @@ export class CanvasMindmap {
             }
             const currentSource = await this.source(root);
             if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || JSON.stringify(canvas.getData()) !== snapshot || currentSource !== raw) {
-                new Notice('画布或原文已发生变化，请重新执行刷新。'); return;
+                new Notice(t('画布或原文已发生变化，请重新执行刷新。')); return;
             }
             const generatedIds = new Map(fresh.map(node => [node.id, replacements.get(node.id) ?? node.id]));
             const nextNodes = fresh.map(node => {
@@ -704,7 +808,8 @@ export class CanvasMindmap {
             placeNodes(data, root.id, new Set(added.map(node => node.id)));
             this.commit(canvas, data, new Set(added.map(node => node.id)));
             if (!canvas.selection.size) this.center(canvas, root.id);
-            new Notice(`刷新完成：保留 ${retained.size}，新增 ${added.length}，移除 ${removed.length} 个标题节点。`);
+            new Notice(t('刷新完成：保留 {retained}，新增 {added}，移除 {removed} 个标题节点。',
+                { retained: retained.size, added: added.length, removed: removed.length }));
         } finally { this.refreshing.delete(canvas); }
     }
 
@@ -712,23 +817,23 @@ export class CanvasMindmap {
         return new Promise(resolve => {
             const dialog = new Modal(this.plugin.app);
             let confirmed = false;
-            dialog.setTitle('确认标题结构变更');
-            dialog.contentEl.createEl('p', { text: `以下旧标题无法可靠匹配（可能已改名、移动、删除或重名）。刷新将移除这些卡片及其连线，包括 ${edges} 条额外连接。取消可保留当前导图。` });
+            dialog.setTitle(t('确认标题结构变更'));
+            dialog.contentEl.createEl('p', { text: t('以下旧标题无法可靠匹配（可能已改名、移动、删除或重名）。刷新将移除这些卡片及其连线，包括 {edges} 条额外连接。取消可保留当前导图。', { edges }) });
             const list = dialog.contentEl.createDiv({ cls: 'cmm-mindmap-change-list' });
-            list.createEl('h3', { text: `移除 ${removed.length} 个旧节点` });
+            list.createEl('h3', { text: t('移除 {count} 个旧节点', { count: removed.length }) });
             for (const node of removed) {
                 const state = meta(node)!;
-                let label = state.title || '无标题';
+                let label = state.title || t('无标题');
                 try {
-                    label = state.key.split('/').slice(1).map(part => decodeURIComponent(part.replace(/:\d+$/, '')) || '无标题').join(' › ');
+                    label = state.key.split('/').slice(1).map(part => decodeURIComponent(part.replace(/:\d+$/, '')) || t('无标题')).join(' › ');
                 } catch { /* Keep the readable title if external metadata has an invalid key. */ }
                 list.createEl('p', { text: label });
             }
-            list.createEl('h3', { text: `新增 ${added.length} 个节点` });
-            for (const node of added) list.createEl('p', { text: meta(node)!.title || '无标题' });
+            list.createEl('h3', { text: t('新增 {count} 个节点', { count: added.length }) });
+            for (const node of added) list.createEl('p', { text: meta(node)!.title || t('无标题') });
             new Setting(dialog.contentEl)
-                .addButton(button => button.setButtonText('取消').onClick(() => dialog.close()))
-                .addButton(button => button.setButtonText('确认刷新').setWarning().onClick(() => { confirmed = true; dialog.close(); }));
+                .addButton(button => button.setButtonText(t('取消')).onClick(() => dialog.close()))
+                .addButton(button => button.setButtonText(t('确认刷新')).setWarning().onClick(() => { confirmed = true; dialog.close(); }));
             dialog.onClose = () => { dialog.contentEl.empty(); resolve(confirmed); };
             dialog.open();
         });
@@ -750,7 +855,7 @@ export class CanvasMindmap {
     }
 
     private clearDisplay(canvas: Canvas): void {
-        this.reading.get(canvas)?.bar?.remove(); this.reading.delete(canvas);
+        if (this.reading.has(canvas)) this.exitFocus(canvas);
         for (const node of canvas.nodes.values()) {
             node.nodeEl.classList.remove(HIDDEN, DIM);
             this.previewSizes.delete(node);
@@ -810,7 +915,7 @@ export class CanvasMindmap {
         const data = this.readingData(canvas, canvas.getData());
         const focus = this.reading.get(canvas);
         if (focus && !data.nodes.some(node => node.id === focus.id && meta(node)?.rootId === focus.rootId)) {
-            focus.bar?.remove(); this.reading.delete(canvas);
+            this.exitFocus(canvas); return;
         }
         const { hidden, dim } = this.displayState(canvas, data);
         for (const node of this.observers.keys()) {
@@ -861,8 +966,10 @@ export class CanvasMindmap {
             if (button.textContent !== label) button.textContent = label;
             button.disabled = canvas.readonly;
             button.setAttribute('aria-expanded', String(state.expanded));
-            button.setAttribute('aria-label', `${state.expanded ? '收起分支' : '展开下一级'}，${count} 个隐藏后代`);
-            button.title = `${state.expanded ? '收起分支' : '展开下一级'} · ${count} 个隐藏后代`;
+            const action = t(state.expanded ? '收起分支' : '展开下一级');
+            const descendantsLabel = t('{count} 个隐藏后代', { count });
+            button.setAttribute('aria-label', `${action}, ${descendantsLabel}`);
+            button.title = `${action} · ${descendantsLabel}`;
         }
         for (const edge of canvas.edges.values()) {
             this.hideEdge(edge, this.isHidden(edge, hidden)); this.dimEdge(edge, this.isHidden(edge, dim));
@@ -916,6 +1023,7 @@ export class CanvasMindmap {
             }
             canvas.importData(this.persistentData(canvas, fittedData));
             canvas.requestSave(false);
+            if (this.reading.get(canvas)?.compact) this.applyFocusLayout(canvas, false);
         }
         if (pending) {
             for (const id of pending) {
@@ -930,8 +1038,8 @@ export class CanvasMindmap {
 /** Shared by per-node editing and the global level templates. */
 function styleFields(container: HTMLElement, style: MindmapLevelStyle, save: () => void): void {
     for (const key of ['width', 'height'] as const) new Setting(container)
-        .setName(key === 'width' ? '宽度' : '高度（自动高度时作为初始值）')
-        .setDesc('画布单位，范围 50–5000。')
+        .setName(t(key === 'width' ? '宽度' : '高度（自动高度时作为初始值）'))
+        .setDesc(t('画布单位，范围 50–5000。'))
         .addText(text => {
             text.setValue(String(style[key])).onChange(raw => {
                 const value = Number(raw);
@@ -941,9 +1049,9 @@ function styleFields(container: HTMLElement, style: MindmapLevelStyle, save: () 
             });
             text.inputEl.type = 'number'; text.inputEl.min = '50'; text.inputEl.max = '5000';
         });
-    new Setting(container).setName('自动高度').setDesc('按内容增高；手动拖动高度后保留你的调整。')
+    new Setting(container).setName(t('自动高度')).setDesc(t('按内容增高；手动拖动高度后保留你的调整。'))
         .addToggle(toggle => toggle.setValue(style.autoHeight).onChange(value => { style.autoHeight = value; save(); }));
-    new Setting(container).setName('背景颜色').setDesc('留空使用默认颜色，1–6 使用画布颜色，或输入 #RRGGBB。')
+    new Setting(container).setName(t('背景颜色')).setDesc(t('留空使用默认颜色，1–6 使用画布颜色，或输入 #RRGGBB。'))
         .addText(text => text.setValue(style.color).setPlaceholder('#7c8cf8').onChange(raw => {
             const value = raw.trim(), valid = /^(|[1-6]|#[\da-fA-F]{6})$/.test(value);
             text.inputEl.setAttribute('aria-invalid', String(!valid));
@@ -962,11 +1070,25 @@ export function normalizeMindmapLevels(value: unknown): MindmapLevelStyle[] {
 }
 
 export function renderMindmapSettings(container: HTMLElement, plugin: CanvasMindMapPlugin): void {
-    new Setting(container).setName('思维导图层级模板').setHeading()
-        .setDesc('按距离中心的实际层数设置。修改用于新节点；已有导图可通过右键应用模板。');
+    new Setting(container).setName(t('思维导图')).setHeading();
+    new Setting(container).setName(t('语言')).setDesc(t('自动跟随 Obsidian；不支持的语言使用英语。'))
+        .addDropdown(dropdown => dropdown.addOptions(languageOptions()).setValue(plugin.settings.language).onChange(async value => {
+            plugin.settings.language = value === 'en' || value === 'zh-CN' ? value : 'auto';
+            await plugin.saveSettings(); plugin.refreshLanguage();
+            container.empty(); renderMindmapSettings(container, plugin);
+            new Notice(t('语言已更新。重新加载插件后，命令面板中的名称也会更新。'));
+        }));
+    new Setting(container).setName(t('聚焦阅读')).setHeading();
+    new Setting(container).setName(t('聚焦时优化子树布局'))
+        .setDesc(t('临时紧凑排列当前可见后代；退出聚焦后恢复原位置。'))
+        .addToggle(toggle => toggle.setValue(plugin.settings.compactFocus).onChange(value => {
+            plugin.settings.compactFocus = value; void plugin.saveSettings();
+        }));
+    new Setting(container).setName(t('思维导图层级模板')).setHeading()
+        .setDesc(t('按距离中心的实际层数设置。修改用于新节点；已有导图可通过右键应用模板。'));
     plugin.settings.mindmapLevels.forEach((style, depth) => {
         const details = container.createEl('details', { cls: 'cmm-mindmap-level-settings' });
-        details.createEl('summary', { text: depth === 0 ? '第 0 层 · 中心' : `第 ${depth} 层` });
+        details.createEl('summary', { text: depth === 0 ? t('第 0 层 · 中心') : t('第 {depth} 层', { depth }) });
         styleFields(details, style, () => { void plugin.saveSettings(); });
     });
 }
