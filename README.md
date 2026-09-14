@@ -1,6 +1,6 @@
 <div align="right">
 
-[简体中文](README.ch.md) | **English**
+[简体中文](README.zh-CN.md) | **English**
 
 </div>
 
@@ -8,7 +8,22 @@
 
 **Turn Markdown notes into collapsible, navigable, and freely arranged mind maps.**
 
-Canvas Mind Map is an Obsidian plugin that converts the heading hierarchy of your notes into native Canvas cards, allowing you to browse document structure, expand details, and jump back to the original note for further reading.
+Canvas Mind Map offers two independent rendering modes: Native Canvas for native card editing, and Organic Mind Map for exploring Markdown headings through text and curved, colored branches.
+
+## Rendering modes
+
+| Mode | Purpose | Entry point |
+| --- | --- | --- |
+| Native Canvas | Real nodes and edges, seven layouts, manual movement and existing Canvas interaction | Generate a mind map from a Canvas source card |
+| Organic Mind Map | A separate SVG reading view with heading hierarchy, branch colors and zoom/pan | Right-click a Markdown file or run **Open note in Organic mode** |
+
+Organic opens in its own tab and never converts or overwrites a `.canvas` file. A sole top-level heading becomes the center; otherwise the note name is used. Notes without headings show the note name. Initially the center (depth 0) and two descendant levels are visible. Click a heading to open its source line, including repeated headings; use the small +/− controls to fold branches. Folding preserves branch color, side, order and the clicked heading's screen position.
+
+Drag the background to pan, scroll to zoom around the pointer, or use the toolbar's zoom and **Fit to view** controls. With the background focused, arrow keys pan, +/− zoom and 0 fits the map. Headings and fold controls are keyboard accessible.
+
+The first Organic version renders headings only, with no arbitrary card editing or native Canvas undo. After editing Markdown, use **Refresh**; navigation detects stale source content and asks you to refresh before jumping. Folding and viewport state last only for the current view session. Reopening starts at two levels, and no additional map file is created. The modes do not require feature parity.
+
+The existing features below describe **Native Canvas**. Its title/body content options are separate from rendering modes.
 
 ## Features
 

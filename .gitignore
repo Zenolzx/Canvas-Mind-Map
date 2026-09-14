@@ -10,6 +10,7 @@ node_modules/
 /dist/
 /build/
 /coverage/
+/tmp/
 .cache/
 
 # Obsidian local settings and vault state

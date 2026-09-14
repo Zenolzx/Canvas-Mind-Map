@@ -1,4 +1,6 @@
-import { FuzzySuggestModal, ItemView, Menu, Modal, Notice, Setting } from 'obsidian';
+import { buildMindMapModel } from './core/MindMapModel';
+import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
+import { FuzzySuggestModal, ItemView, Menu, MenuItem, Modal, Notice, Setting } from 'obsidian';
 import { around } from 'monkey-around';
 import type { AllCanvasNodeData, CanvasData, NodeSide } from 'obsidian/canvas';
 import type CanvasMindMapPlugin from '../main';
@@ -8,7 +10,7 @@ import { DEFAULT_MINDMAP_LEVELS, layoutLabels, MindmapLevelStyle, MindmapLayout 
 import { languageOptions, t } from './i18n';
 import {
     applyStyle, assignAngles, captureOverrides, descendants, hiddenNodes, meta, MINDMAP_KEY,
-    layoutFocusedSubtree, MindmapMeta, parseHeadings, placeNodes, treeEdge, treeNodes,
+    layoutFocusedSubtree, MindmapMeta, placeNodes, treeEdge, treeNodes,
 } from './MindmapModel';
 
 const HIDDEN = 'cmm-mindmap-hidden';
@@ -27,6 +29,12 @@ interface ReadingFocus {
     positions: Map<string, { x: number; y: number }>;
     edges: Map<string, { fromSide?: NodeSide; toSide?: NodeSide }>;
     bar?: HTMLElement;
+}
+
+// `setSubmenu` is available in Obsidian's runtime, but is not yet included in
+// its public TypeScript declarations. Keep the internal API boundary local.
+interface SubmenuMenuItem extends MenuItem {
+    setSubmenu(): Menu;
 }
 
 /** Canvas owns serialization and undo. We add metadata and a reversible display layer. */
@@ -181,6 +189,14 @@ export class CanvasMindmap {
         const state = meta(node.getData());
         const item = (title: string, action: () => void | Promise<void>) => menu.addItem(entry =>
             entry.setTitle(title).setSection('canvas-mind-map').onClick(() => this.run(action)));
+        const submenu = (title: string, build: (submenu: Menu) => void) => menu.addItem(entry => {
+            const submenuItem = entry as SubmenuMenuItem;
+            if (typeof submenuItem.setSubmenu !== 'function') return;
+            submenuItem.setTitle(title).setSection('canvas-mind-map');
+            build(submenuItem.setSubmenu());
+        });
+        const submenuItem = (submenu: Menu, title: string, action: () => void | Promise<void>) => submenu.addItem(entry =>
+            entry.setTitle(title).onClick(() => this.run(action)));
         if (!state) {
             if (canvas.readonly || !this.isSource(node)) return;
             item(t('生成可折叠思维导图'), () => this.generationDialog(canvas, node));
@@ -189,17 +205,25 @@ export class CanvasMindmap {
         item(t('返回思维导图中心'), () => this.center(canvas, node.id));
         item(t('聚焦当前分支'), () => this.focusBranch(canvas, node.id));
         if (this.reading.has(canvas)) item(t('退出分支聚焦'), () => this.exitFocus(canvas));
-        item(t('查看思维导图全貌'), () => this.overview(canvas, node.id));
-        item(t('搜索标题（包含折叠节点）…'), () => this.search(canvas, node.id));
-        if (canvas.readonly) return;
-        item(t('展开下一级标题'), () => this.fold(canvas, node.id, true));
-        item(t('收起整个分支'), () => this.fold(canvas, node.id, false));
-        item(t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
-        item(t('重新排列整张思维导图'), () => this.relayout(canvas, node.id));
-        item(t('切换思维导图布局…'), () => this.layoutDialog(canvas, node.id));
-        item(t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
-        item(t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
-        item(t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
+        if (!canvas.readonly) {
+            item(t('展开下一级标题'), () => this.fold(canvas, node.id, true));
+            item(t('收起整个分支'), () => this.fold(canvas, node.id, false));
+            submenu(t('布局'), layout => {
+                submenuItem(layout, t('重新排列整张思维导图'), () => this.relayout(canvas, node.id));
+                submenuItem(layout, t('切换思维导图布局…'), () => this.layoutDialog(canvas, node.id));
+            });
+        }
+        submenu(t('选项'), options => {
+            submenuItem(options, t('查看思维导图全貌'), () => this.overview(canvas, node.id));
+            submenuItem(options, t('搜索标题（包含折叠节点）…'), () => this.search(canvas, node.id));
+            if (canvas.readonly) return;
+            options.addSeparator();
+            submenuItem(options, t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
+            submenuItem(options, t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
+            submenuItem(options, t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
+            options.addSeparator();
+            submenuItem(options, t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
+        });
     }
 
     private run(action: () => void | Promise<void>): void {
@@ -287,33 +311,24 @@ export class CanvasMindmap {
     }
 
     private makeNodes(canvas: Canvas, root: CanvasNode, raw: string, mode: 'title' | 'body'): AllCanvasNodeData[] {
-        let sections = parseHeadings(raw);
-        if (meta(root.getData())?.compact && sections.filter(section => section.parent < 0).length === 1) {
-            sections = sections.slice(1).map(section => ({ ...section, depth: section.depth - 1, parent: section.parent - 1 }));
-        }
         const sourcePath = meta(root.getData())?.source?.file;
         const sourceFile = sourcePath ? this.plugin.app.vault.getFileByPath(sourcePath) : root.file;
-        const ids = sections.map(() => randomId());
-        return sections.map((section, index) => {
-            const style = this.style(section.depth);
-            const link = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(
-                sourceFile, canvas.view.file.path, `#${section.title}`, section.title || t('无标题')) : section.title || t('无标题');
-            const text = mode === 'body' ? section.content : `**${link}**`;
-            const state: MindmapMeta = {
-                version: 1, nodeId: ids[index], rootId: root.id, parentId: section.parent < 0 ? root.id : ids[section.parent],
-                depth: section.depth, key: section.key, title: section.title, expanded: section.depth < 2,
-                angle: 0, placed: false, mode, style,
-                applied: { width: style.width, height: style.height, color: style.color },
-                generatedText: sourceFile && mode === 'body' ? undefined : text,
-            };
-            const payload = sourceFile && mode === 'body'
-                ? { type: 'file' as const, file: sourceFile.path, subpath: `#${sanitizeHeading(section.title)}` }
-                : { type: 'text' as const, text };
-            return { ...payload, id: ids[index], x: root.x, y: root.y, width: style.width, height: style.height,
-                color: style.color, [MINDMAP_KEY]: state };
+        const model = buildMindMapModel(raw, {
+            title: sourceFile?.basename ?? t('中心'), file: sourceFile?.path,
+            promoteSingleRoot: !!meta(root.getData())?.compact,
+        });
+        return new NativeCanvasRenderer().render(model, {
+            rootId: root.id, x: root.x, y: root.y, mode, id: randomId, style: depth => this.style(depth),
+            payload: (title, content) => {
+                const link = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(
+                    sourceFile, canvas.view.file.path, `#${title}`, title || t('无标题')) : title || t('无标题');
+                const text = mode === 'body' ? content : `**${link}**`;
+                return sourceFile && mode === 'body'
+                    ? { data: { type: 'file', file: sourceFile.path, subpath: `#${sanitizeHeading(title)}` } }
+                    : { data: { type: 'text', text }, generatedText: text };
+            },
         });
     }
-
     private generationDialog(canvas: Canvas, node: CanvasNode): void {
         const dialog = new Modal(this.plugin.app);
         let mode = this.plugin.settings.lastMode, layout = this.plugin.settings.lastLayout;

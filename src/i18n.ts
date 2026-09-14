@@ -1,6 +1,11 @@
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
+    '以 Organic 模式打开笔记': 'Open note in Organic mode',
+    '刷新': 'Refresh', '适应窗口': 'Fit to view', '请选择 Markdown 笔记': 'Choose a Markdown note',
+    '标题节点': 'heading nodes', '点击标题跳转，拖动空白平移': 'Click headings to open source; drag background to pan',
+    '无法读取原笔记，请确认文件仍然存在。': 'Cannot read the source note. Check that the file still exists.',
+    '原笔记已修改，请先刷新导图再跳转。': 'The source note has changed. Refresh the mind map before navigating.',
     '自动': 'Automatic', '英语': 'English', '简体中文': 'Simplified Chinese',
     '语言': 'Language', '自动跟随 Obsidian；不支持的语言使用英语。': 'Follow Obsidian automatically; unsupported languages use English.',
     '语言已更新。重新加载插件后，命令面板中的名称也会更新。': 'Language updated. Reload the plugin to update Command Palette names.',
@@ -19,7 +24,7 @@ const EN: Record<string, string> = {
     '从原笔记刷新思维导图': 'Refresh mind map from source note', '应用层级模板（保留单节点覆盖）': 'Apply level template (keep node overrides)',
     '设置此节点外观…': 'Set node appearance…', '思维导图操作失败，请查看控制台。': 'Mind map action failed. Check the console.',
     '无标题': 'Untitled', '中心': 'Central Topic', '节点内容': 'Node content', '仅标题': 'Title only', '含正文': 'Include body',
-    '布局': 'Layout', '取消': 'Cancel', '生成': 'Generate', '切换思维导图布局': 'Switch mind map layout',
+    '布局': 'Layout', '选项': 'Options', '取消': 'Cancel', '生成': 'Generate', '切换思维导图布局': 'Switch mind map layout',
     '重新排列整棵导图，保留内容、样式和折叠状态。可撤销。': 'Relayout the entire map while preserving content, styles, and fold state. Undo is available.',
     '应用布局': 'Apply layout', '没有找到可生成思维导图的标题。': 'No headings were found for generating a mind map.',
     '已生成思维导图，共 {count} 个节点，显示到第 2 层。': 'Generated a {count}-node mind map, shown to level 2.',

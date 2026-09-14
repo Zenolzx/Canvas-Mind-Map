@@ -1,9 +1,10 @@
-import { Menu, moment, Plugin, PluginSettingTab } from 'obsidian';
+import { Menu, moment, Plugin, PluginSettingTab, TFile } from 'obsidian';
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
 import { LAYOUT_LABEL_KEYS, MindmapSettings } from './src/settings';
-import { setLanguage } from './src/i18n';
+import { setLanguage, t } from './src/i18n';
+import { ORGANIC_VIEW, OrganicMindMapView } from './src/organic/OrganicMindMapView';
 
 export default class CanvasMindMapPlugin extends Plugin {
     settings: MindmapSettings;
@@ -20,6 +21,19 @@ export default class CanvasMindMapPlugin extends Plugin {
             lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'radial',
         };
         setLanguage(this.settings.language, moment.locale());
+        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf));
+        this.addCommand({ id: 'open-organic-mind-map', name: t('以 Organic 模式打开笔记'),
+            checkCallback: checking => {
+                const file = this.app.workspace.getActiveFile();
+                if (file?.extension !== 'md') return false;
+                if (!checking) void this.openOrganic(file);
+                return true;
+            },
+        });
+        this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+            if (file instanceof TFile && file.extension === 'md') menu.addItem(item => item
+                .setTitle(t('以 Organic 模式打开笔记')).setIcon('git-fork').onClick(() => this.openOrganic(file)));
+        }));
         this.mindmap = new CanvasMindmap(this);
         this.mindmap.register();
         this.registerEvent(this.app.workspace.on('file-menu', (menu: Menu) => this.mindmap.addSelectionMenu(menu)));
@@ -60,6 +74,12 @@ export default class CanvasMindMapPlugin extends Plugin {
     }
 
     async saveSettings(): Promise<void> { await this.saveData(this.settings); }
+
+    private async openOrganic(file: TFile): Promise<void> {
+        const leaf = this.app.workspace.getLeaf('tab');
+        await leaf.setViewState({ type: ORGANIC_VIEW, active: true });
+        if (leaf.view instanceof OrganicMindMapView) await leaf.view.loadSource(file);
+    }
 
     refreshLanguage(): void {
         setLanguage(this.settings.language, moment.locale());
