@@ -29,11 +29,36 @@ Canvas Mind Map 是一个 Obsidian 插件。它将笔记中的标题层级转换
 
 ## 安装
 
-目前仅支持手动安装，仓库尚未提供打包 Release：
+### 方法一：通过 Obsidian 第三方插件市场安装（推荐）
 
-1. 获取 `main.js`、`manifest.json` 和 `styles.css` 三个插件文件。若仓库尚未提供下载包，可按下方步骤从源码构建。
-2. 在笔记库中创建 `.obsidian/plugins/canvas-mind-map/` 文件夹，将三个文件放入其中。
-3. 重新加载 Obsidian，在「设置 → 第三方插件」中启用 **Canvas Mind Map**。
+1. 打开 Obsidian，进入「设置 → 第三方插件」。
+2. 点击「浏览」，在插件市场中搜索 **Canvas Mind Map**。
+3. 点击「安装」，安装完成后点击「启用」即可使用。
+
+### 方法二：手动安装
+
+1. 获取插件所需的 `main.js`、`manifest.json` 和 `styles.css` 三个文件。你可以从 GitHub Release 中下载对应版本的插件文件；如果仓库暂未提供可直接下载的构建文件，也可以按照项目说明从源码自行构建。
+
+2. 打开你的 Obsidian 笔记库目录，并进入 `.obsidian/plugins/`。在其中创建名为 `canvas-mind-map` 的文件夹：
+
+   ```text
+   .obsidian/plugins/canvas-mind-map/
+   ```
+
+3. 将 `main.js`、`manifest.json` 和 `styles.css` 放入该文件夹中。最终目录结构应类似：
+
+   ```text
+   .obsidian/
+   └── plugins/
+       └── canvas-mind-map/
+           ├── main.js
+           ├── manifest.json
+           └── styles.css
+   ```
+
+4. 重新加载 Obsidian，进入「设置 → 第三方插件」，找到 **Canvas Mind Map** 并启用。
+
+> 如果插件没有出现在列表中，请确认三个文件均位于 `.obsidian/plugins/canvas-mind-map/` 目录下，并尝试重新启动 Obsidian。
 
 需要 Obsidian **1.7.7 或更高版本**。
 
