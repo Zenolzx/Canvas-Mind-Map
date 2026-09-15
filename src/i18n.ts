@@ -1,6 +1,8 @@
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
+    '应用分支样式（保留自定义）': 'Apply branch appearance (keep customizations)',
+    '已应用分支样式，保留自定义颜色和尺寸。': 'Branch appearance applied. Custom colors and sizes preserved.',
     '以 Organic 模式打开笔记': 'Open note in Organic mode',
     '刷新': 'Refresh', '适应窗口': 'Fit to view', '请选择 Markdown 笔记': 'Choose a Markdown note',
     '标题节点': 'heading nodes', '点击标题跳转，拖动空白平移': 'Click headings to open source; drag background to pan',

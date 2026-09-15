@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node scripts/verify-layout.cjs && node scripts/verify-organic.cjs && node scripts/verify-organic-view.cjs",
+    "test": "node scripts/verify-layout.cjs && node scripts/verify-native-appearance.cjs && node scripts/verify-organic.cjs && node scripts/verify-organic-view.cjs",
     "preview:organic": "node scripts/verify-organic.cjs --preview"
   },
   "keywords": [],

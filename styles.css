@@ -1,4 +1,46 @@
-/* Functional mindmap controls work independently of the optional appearance toggle. */
+/* Native appearance is opt-in per map and never replaces Canvas interaction. */
+.canvas-node.cmm-native-heading {
+    --cmm-heading-size: 16px;
+    --cmm-heading-weight: 450;
+}
+.canvas-node.cmm-native-heading[data-cmm-depth="0"] { --cmm-heading-size: 28px; --cmm-heading-weight: 700; }
+.canvas-node.cmm-native-heading[data-cmm-depth="1"] { --cmm-heading-size: 21px; --cmm-heading-weight: 650; }
+.canvas-node.cmm-native-heading[data-cmm-depth="2"] { --cmm-heading-size: 18px; --cmm-heading-weight: 550; }
+.canvas-node.cmm-native-heading .canvas-node-container {
+    border-radius: 10px;
+    background-color: var(--background-primary);
+    background-image: linear-gradient(rgba(var(--canvas-color), 0.055), rgba(var(--canvas-color), 0.055));
+}
+.canvas-node.cmm-native-heading[data-cmm-depth="0"] .canvas-node-container {
+    background-color: var(--background-secondary);
+}
+.canvas-node.cmm-native-heading .markdown-preview-view {
+    --font-text-size: var(--cmm-heading-size);
+    padding: 10px 14px;
+    font-size: var(--cmm-heading-size);
+    font-weight: var(--cmm-heading-weight);
+    line-height: 1.4;
+    text-align: center;
+    color: rgb(var(--canvas-color));
+}
+.canvas-node.cmm-native-heading[data-cmm-depth="0"] .markdown-preview-view,
+.canvas-node.cmm-native-heading[data-cmm-depth="0"] .markdown-preview-view a.internal-link { color: var(--text-normal); }
+.canvas-node.cmm-native-heading .markdown-preview-view p { margin: 0; }
+.canvas-node.cmm-native-heading .markdown-preview-view strong { font-weight: inherit; }
+.canvas-node.cmm-native-heading .markdown-preview-view a.internal-link {
+    color: rgb(var(--canvas-color));
+    text-decoration: none;
+}
+.canvas-node.cmm-native-heading .markdown-preview-view a.internal-link:hover { text-decoration: underline; }
+.canvas-node.cmm-native-heading > .cmm-mindmap-toggle {
+    top: calc(100% + 5px);
+    min-width: 24px;
+    height: 24px;
+    font-size: 12px;
+    box-shadow: none;
+}
+
+/* Functional mindmap controls work independently of appearance. */
 .cmm-mindmap-hidden {
     display: none !important;
 }

@@ -28,7 +28,7 @@ function fixture(layout) {
     return { nodes, edges: nodes.slice(1).map(n => treeEdge(`e${n.id}`, 'root', meta(n).parentId, n.id)) };
 }
 const pos = n => [n.x, n.y];
-function validate(data, layout) {
+function validate(data, layout, fullLayout = false) {
     const hidden = hiddenNodes(data.nodes), visible = data.nodes.filter(n => !hidden.has(n.id));
     const vertical = ['vertical', 'up', 'down'].includes(layout);
     const main = n => vertical ? n.y + n.height / 2 : n.x + n.width / 2;
@@ -46,7 +46,10 @@ function validate(data, layout) {
             const branch = [child, ...descendants(visible, child.id)];
             const interval = [Math.min(...branch.map(crossStart)), Math.max(...branch.map(crossEnd))];
             const previous = groups.get(side);
-            assert.ok(!previous || previous[1] < interval[0], `${layout}: crossing subtree lanes at ${child.id}`);
+            // Local expansion keeps neighbouring branches fixed, so cross-axis
+            // extents may overlap after outward obstacle avoidance. Global lane
+            // separation is a full-relayout contract, not a local-edit contract.
+            if (fullLayout) assert.ok(!previous || previous[1] < interval[0], `${layout}: crossing subtree lanes at ${child.id}`);
             groups.set(side, interval);
         }
     }
@@ -54,11 +57,13 @@ function validate(data, layout) {
 for (const layout of ['horizontal', 'vertical', 'left', 'right', 'up', 'down']) {
     const data = fixture(layout);
     placeNodes(data, 'root', new Set(data.nodes.slice(1).map(n => n.id)));
-    validate(data, layout);
+    validate(data, layout, true);
     for (const id of ['b3', 'b1', 'b6', 'b4']) {
         const anchor = data.nodes.find(n => n.id === id);
         anchor.x += 0.25; anchor.y += 0.75;
         const before = pos(anchor), rootBefore = pos(data.nodes[0]);
+        const branchIds = new Set([id, ...descendants(data.nodes, id).map(n => n.id)]);
+        const outside = data.nodes.filter(n => !branchIds.has(n.id)).map(n => [n.id, pos(n)]);
         const oldHidden = hiddenNodes(data.nodes);
         meta(anchor).expanded = true;
         const hidden = hiddenNodes(data.nodes);
@@ -66,6 +71,7 @@ for (const layout of ['horizontal', 'vertical', 'left', 'right', 'up', 'down']) 
         placeNodes(data, 'root', revealed, id);
         assert.deepEqual(pos(anchor), before, `${layout}: anchor moved`);
         assert.deepEqual(pos(data.nodes[0]), rootBefore, `${layout}: root moved`);
+        for (const [id, position] of outside) assert.deepEqual(pos(data.nodes.find(n => n.id === id)), position, `${layout}: another branch moved`);
         validate(data, layout);
         const growing = data.nodes.find(n => n.id === `${id}c0`);
         growing.height = 580;
@@ -175,6 +181,7 @@ class Element {
     addEventListener() {}
     appendText() {}
     setAttribute() {}
+    removeAttribute() {}
     remove() { this.isConnected = false; }
 }
 function canvasDouble(data) {

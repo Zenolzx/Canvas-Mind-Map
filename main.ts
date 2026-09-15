@@ -18,7 +18,7 @@ export default class CanvasMindMapPlugin extends Plugin {
             focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
             compactFocus: saved.compactFocus !== false,
             language: saved.language === 'en' || saved.language === 'zh-CN' ? saved.language : 'auto',
-            lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'radial',
+            lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'horizontal',
         };
         setLanguage(this.settings.language, moment.locale());
         this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf));

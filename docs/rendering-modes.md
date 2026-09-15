@@ -24,8 +24,9 @@ Markdown → HeadingParser → MindMapModel
 cards. It receives native ID generation, styles and file/text payload creation
 from `CanvasMindmap`. Generation and refresh both use this adapter.
 
-`src/native/NativeCanvasModel.ts` retains the existing seven layouts, metadata,
-folding, style overrides and focus projection. `src/MindmapModel.ts` is a legacy
+`src/native/NativeCanvasModel.ts` retains native metadata, folding, style overrides
+and focus projection. It adapts visible card bounds to `NativeLayoutEngine`, a
+pure geometry module for all seven layouts. `src/MindmapModel.ts` is a legacy
 re-export so existing imports keep working. `CanvasMindmap` remains responsible
 for source retrieval, compacting the physical center, external edge reconnection,
 manual edit preservation, native saving, selection, history and lifecycle patches.
@@ -34,7 +35,23 @@ the previous generation sequence. Already compacted roots use model promotion.
 
 The `canvasMindMap` metadata version remains 1. Existing `lastMode` remains the
 Native title/body choice, not a rendering-mode switch. No Canvas-file conversion,
-automatic migration or Native styling change is introduced.
+automatic migration is performed when opening an existing Canvas.
+
+New maps use branch colors and lightweight heading cards. Old maps opt in through
+the branch appearance command. `NativeAppearance` persists first-branch palette
+identity, propagates it to descendants and native edges, and preserves manual
+node size/color and edge color overrides. Body cards retain their content styling.
+The initial layout preference is horizontal; saved preferences remain respected.
+
+The native engine packs complete measured subtrees, uses progressively shorter
+base gaps, and assigns radial sectors by complete-tree weights. Full relayout
+replaces manual positions. Local expansion fixes the clicked node and ancestor
+path and repacks descendants, leaving other first-level branches and external
+cards in place. Collision handling translates whole child subtrees outward using
+analytical rectangle-sweep intervals, allowing longer connections where needed.
+Global cross-axis lanes may overlap after a local edit; this is necessary when
+neighbouring branches must stay fixed. Native edge control points remain owned
+by Obsidian. Layout geometry is independent of DOM rendering and source parsing.
 
 ## Organic boundary
 
@@ -68,6 +85,10 @@ in a reusable source pane. No source edits or extra map files are made.
   `tmp/organic-preview/` from a bilingual, uneven document fixture.
 - `scripts/render-organic-preview.py`: optional Pillow geometry image from that
   result. It is a static layout check, not an Obsidian screenshot.
+- `node scripts/verify-native-appearance.cjs --preview` followed by
+  `python scripts/render-native-preview.py`: optional Pillow contact sheet of all
+  seven native layouts under `tmp/native-preview/`. Connectors are approximated
+  for geometry inspection; this does not validate the host's SVG or CSS rendering.
 
 Runtime acceptance in Obsidian should include opening Organic from a note, folding
 with keyboard and mouse, zoom/pan, repeated-title navigation, refresh after edits,

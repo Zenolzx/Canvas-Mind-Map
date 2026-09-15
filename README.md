@@ -80,7 +80,7 @@ If you previously used the mind map functionality from Enhanced Canvas, disable 
 3. Choose **Title only** or **Include body**, select a layout, and click **Generate**. The plugin remembers your most recent selection.
 4. Click the **＋ / −** control below a node to expand or collapse its branch.
 
-The default configuration is **Title only + Radial layout**, displaying the mind map up to level 2.
+The default configuration is **Title only + Bidirectional horizontal layout**, displaying the mind map up to level 2. Saved layout preferences remain respected.
 
 If the source contains only one top-level heading, that heading becomes the center node. If there are multiple top-level headings, they are arranged around the note center.
 
@@ -98,7 +98,9 @@ Open the context menu on any mind map node to:
 
 Each mind map stores its layout independently.
 
-Switching layouts rearranges node positions, while normal expansion preserves existing card positions.
+All seven layouts pack complete subtrees using actual card dimensions and progressively shorter base gaps. Radial layout allocates sectors by subtree weight. Expansion fixes the clicked card and its ancestor path and arranges its descendants; other first-level branches and ordinary Canvas cards remain in place. Subtrees can extend outward to avoid obstacles. Explicit relayout rearranges the entire map and replaces manual positions.
+
+New maps use branch colors: descendants and native edges inherit their first-level branch's palette identity. Title mode also uses lightweight cards and typography hierarchy; body mode retains its reading space. Existing maps are unchanged on load: use **Relayout** for improved geometry and **Options → Apply branch appearance (keep customizations)** for the new appearance. Manual card colors, dimensions and edge colors are preserved. **Restore level template** resets a single card. Native curves remain rendered by Obsidian.
 
 During refresh, if an existing node cannot be matched—for example because a heading was deleted, renamed, moved to another parent, or duplicated—the plugin displays a confirmation dialog before applying the changes.
 

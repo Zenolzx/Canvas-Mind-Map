@@ -1,5 +1,6 @@
 import { buildMindMapModel } from './core/MindMapModel';
 import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
+import { applyBranchAppearance } from './native/NativeAppearance';
 import { FuzzySuggestModal, ItemView, Menu, MenuItem, Modal, Notice, Setting } from 'obsidian';
 import { around } from 'monkey-around';
 import type { AllCanvasNodeData, CanvasData, NodeSide } from 'obsidian/canvas';
@@ -127,6 +128,7 @@ export class CanvasMindmap {
         this.command('mindmap-layout-select', t('思维导图：切换布局'), (canvas, node) => this.layoutDialog(canvas, node.id));
         this.command('mindmap-refresh', t('思维导图：从原笔记刷新'), (canvas, node) => this.refresh(canvas, node.id));
         this.command('mindmap-template', t('思维导图：应用层级模板'), (canvas, node) => this.applyTemplate(canvas, node.id));
+        this.command('mindmap-branch-style', t('应用分支样式（保留自定义）'), (canvas, node) => this.branchAppearance(canvas, node.id));
         this.command('mindmap-style', t('思维导图：设置当前节点外观'), (canvas, node) => this.styleDialog(canvas, node.id));
         this.command('mindmap-focus', t('思维导图：聚焦当前分支'), (canvas, node) => this.focusBranch(canvas, node.id), false, true);
         this.command('mindmap-overview', t('思维导图：查看全貌'), (canvas, node) => this.overview(canvas, node.id), false, true);
@@ -220,6 +222,7 @@ export class CanvasMindmap {
             options.addSeparator();
             submenuItem(options, t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
             submenuItem(options, t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
+            submenuItem(options, t('应用分支样式（保留自定义）'), () => this.branchAppearance(canvas, node.id));
             submenuItem(options, t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
             options.addSeparator();
             submenuItem(options, t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
@@ -388,6 +391,7 @@ export class CanvasMindmap {
         data.nodes.push(...nodes);
         for (const node of nodes) data.edges.push(treeEdge(randomId(), root.id, meta(node)!.parentId!, node.id));
         const centerId = this.compactRoot(data, root.id, raw, canvas.view.file.path);
+        applyBranchAppearance(data, centerId);
         for (const node of treeNodes(data, centerId)) meta(node)!.expanded = meta(node)!.depth < 2;
         assignAngles(treeNodes(data, centerId), centerId);
         placeNodes(data, centerId, new Set(nodes.map(node => node.id)));
@@ -711,8 +715,19 @@ export class CanvasMindmap {
         const state = selected && meta(selected);
         if (!state) return;
         for (const node of treeNodes(data, state.rootId)) applyStyle(node, this.style(meta(node)!.depth));
+        if (meta(data.nodes.find(n => n.id === state.rootId)!)?.appearance === 'branch') applyBranchAppearance(data, state.rootId);
         this.commit(canvas, data);
         new Notice(t('已应用层级模板，保留单节点覆盖。'));
+    }
+
+    private branchAppearance(canvas: Canvas, id: string): void {
+        if (canvas.readonly) return;
+        const data = this.readData(canvas), selected = data.nodes.find(n => n.id === id);
+        const state = selected && meta(selected);
+        if (!state) return;
+        applyBranchAppearance(data, state.rootId);
+        this.commit(canvas, data);
+        new Notice(t('已应用分支样式，保留自定义颜色和尺寸。'));
     }
 
     private styleDialog(canvas: Canvas, id: string): void {
@@ -741,6 +756,7 @@ export class CanvasMindmap {
                 currentState.overrides = {};
                 currentState.applied = { width: current.width, height: current.height, color: current.color ?? '' };
                 applyStyle(current, this.style(currentState.depth));
+                if (currentState.appearance === 'branch') applyBranchAppearance(data, currentState.rootId);
                 this.commit(canvas, data);
             }
             dialog.close();
@@ -819,6 +835,7 @@ export class CanvasMindmap {
                 const existing = oldEdges.find(edge => edge.fromNode === parentId && edge.toNode === node.id);
                 data.edges.push(existing ?? treeEdge(randomId(), root.id, parentId, node.id));
             }
+            if (rootMeta.appearance === 'branch') applyBranchAppearance(data, root.id);
             assignAngles(treeNodes(data, root.id), root.id);
             placeNodes(data, root.id, new Set(added.map(node => node.id)));
             this.commit(canvas, data, new Set(added.map(node => node.id)));
@@ -872,7 +889,8 @@ export class CanvasMindmap {
     private clearDisplay(canvas: Canvas): void {
         if (this.reading.has(canvas)) this.exitFocus(canvas);
         for (const node of canvas.nodes.values()) {
-            node.nodeEl.classList.remove(HIDDEN, DIM);
+            node.nodeEl.classList.remove(HIDDEN, DIM, 'cmm-native-heading');
+            node.nodeEl.removeAttribute('data-cmm-depth');
             this.previewSizes.delete(node);
             this.refreshPreview(node, false);
             node.nodeEl.querySelector(`.${BUTTON}`)?.remove();
@@ -955,6 +973,9 @@ export class CanvasMindmap {
             node.nodeEl.classList.toggle(HIDDEN, hidden.has(node.id));
             node.nodeEl.classList.toggle(DIM, dim.has(node.id));
             const state = meta(nodeData);
+            node.nodeEl.classList.toggle('cmm-native-heading', state?.appearance === 'branch' && state.mode === 'title');
+            if (state) node.nodeEl.setAttribute('data-cmm-depth', String(state.depth));
+            else node.nodeEl.removeAttribute('data-cmm-depth');
             if (state && (measure || hidden.has(node.id))) this.refreshPreview(node, hidden.has(node.id));
             const autoHeight = !!state?.style.autoHeight && !state.overrides?.height && node.height === state.applied.height;
             if (state && !autoHeight) node.autoHeightEnabled = false;

@@ -1,3 +1,4 @@
+import { layoutNative } from './NativeLayoutEngine';
 import type { AllCanvasNodeData, CanvasData, CanvasEdgeData, NodeSide } from 'obsidian/canvas';
 import type { MindmapLevelStyle, MindmapLayout } from '../settings';
 
@@ -21,6 +22,8 @@ export interface MindmapMeta {
     generatedText?: string;
     source?: { file?: string; text?: string };
     compact?: boolean;
+    appearance?: 'branch';
+    branchColor?: string;
 }
 
 export { parseHeadings } from '../core/HeadingParser';
@@ -107,8 +110,7 @@ export function assignAngles(nodes: AllCanvasNodeData[], rootId: string): void {
     const allocate = (id: string, start: number, span: number) => {
         let cursor = start;
         for (const child of children.get(id) ?? []) {
-            const width = id === rootId ? span / (children.get(id)?.length ?? 1)
-                : span * (weights.get(child.id) ?? 1) / (weights.get(id) ?? 1);
+            const width = span * (weights.get(child.id) ?? 1) / (weights.get(id) ?? 1);
             meta(child)!.angle = cursor + width / 2;
             // A lone/dominant first branch can own most of the circle. Its
             // descendants still grow outward, instead of turning back through the center.
@@ -120,158 +122,23 @@ export function assignAngles(nodes: AllCanvasNodeData[], rootId: string): void {
     allocate(rootId, -Math.PI, Math.PI * 2);
 }
 
-/** Directional trees reflow affected sides; radial trees retain angular placement. */
+/** Adapt native metadata to a pure measured-card layout. */
 export function placeNodes(data: CanvasData, rootId: string, candidates: Set<string>, anchorId?: string): void {
-    const center = data.nodes.find(node => node.id === rootId);
-    if (!center) return;
-    const layout = meta(center)?.layout ?? 'radial';
-    if (layout !== 'radial') { placeDirectionalNodes(data, rootId, candidates, layout, anchorId); return; }
-    const hidden = hiddenNodes(data.nodes);
-    const lookup = new Map(data.nodes.map(node => [node.id, node]));
-    const tree = treeNodes(data, rootId);
-    const root = lookup.get(rootId);
+    const tree = treeNodes(data, rootId), root = tree.find(n => n.id === rootId);
     if (!root) return;
-    const cx = root.x + root.width / 2, cy = root.y + root.height / 2;
-    const movable = new Set(tree.filter(node => node.id !== rootId && candidates.has(node.id)).map(node => node.id));
-    const occupied = data.nodes.filter(node => !hidden.has(node.id) && !movable.has(node.id) && node.type !== 'group');
-    const pending = tree.filter(node => movable.has(node.id) && !hidden.has(node.id))
-        .sort((a, b) => meta(a)!.depth - meta(b)!.depth);
-    const radii = new Map<number, number>([[0, 0]]);
-    let previousSize = Math.hypot(root.width, root.height);
-    for (let depth = 1; depth <= 6; depth++) {
-        const level = tree.filter(node => meta(node)!.depth === depth && !hidden.has(node.id));
-        const size = Math.max(0, ...level.map(node => Math.hypot(node.width, node.height)));
-        radii.set(depth, (radii.get(depth - 1) ?? 0) + (previousSize + size) / 2 + 120);
-        previousSize = size;
-    }
-    for (const node of pending) {
-        const state = meta(node)!;
-        const parent = lookup.get(state.parentId ?? '');
-        if (!parent) continue;
-        if (!state.placed || occupied.some(other => overlaps(node, other))) {
-            const angle = state.angle;
-            // Shared concentric rings and disjoint angular sectors keep branches
-            // ordered around the center rather than weaving across neighboring trees.
-            const parentRadius = Math.hypot(parent.x + parent.width / 2 - cx, parent.y + parent.height / 2 - cy);
-            let distance = Math.max(radii.get(state.depth) ?? 0,
-                parentRadius + (Math.hypot(parent.width, parent.height) + Math.hypot(node.width, node.height)) / 2 + 120);
-            do {
-                node.x = Math.round(cx + Math.cos(angle) * distance - node.width / 2);
-                node.y = Math.round(cy + Math.sin(angle) * distance - node.height / 2);
-                distance += Math.max(80, Math.min(node.width, node.height));
-            } while (occupied.some(other => overlaps(node, other)));
-        }
-        state.placed = true;
-        occupied.push(node);
-    }
-    updateEdgeSides(data, rootId);
-}
-
-/** Reflow affected sides as ordered subtree lanes; keep the interaction anchor fixed. */
-function placeDirectionalNodes(data: CanvasData, rootId: string, candidates: Set<string>, layout: MindmapLayout, anchorId?: string): void {
-    const hidden = hiddenNodes(data.nodes);
-    const tree = treeNodes(data, rootId).filter(node => !hidden.has(node.id));
-    const root = tree.find(node => node.id === rootId);
-    if (!root) return;
-    const vertical = layout === 'vertical' || layout === 'up' || layout === 'down';
-    const dual = layout === 'horizontal' || layout === 'vertical';
-    const mainSize = (node: AllCanvasNodeData) => vertical ? node.height : node.width;
-    const crossSize = (node: AllCanvasNodeData) => vertical ? node.width : node.height;
-    const mainCenter = (node: AllCanvasNodeData) => vertical ? node.y + node.height / 2 : node.x + node.width / 2;
-    const crossCenter = (node: AllCanvasNodeData) => vertical ? node.x + node.width / 2 : node.y + node.height / 2;
-    const children = new Map<string, AllCanvasNodeData[]>();
+    const hidden = hiddenNodes(data.nodes), ids = new Set(tree.map(n => n.id));
+    const positions = layoutNative(tree.map(n => ({
+        id: n.id, parentId: meta(n)!.parentId, depth: meta(n)!.depth,
+        x: n.x, y: n.y, width: n.width, height: n.height,
+        visible: !hidden.has(n.id), placed: meta(n)!.placed, angle: meta(n)!.angle,
+    })), { rootId, layout: meta(root)!.layout ?? 'radial', candidates, anchorId,
+        obstacles: data.nodes.filter(n => !ids.has(n.id) && !hidden.has(n.id) && n.type !== 'group') });
     for (const node of tree) {
-        const parent = meta(node)!.parentId;
-        if (parent) children.set(parent, [...(children.get(parent) ?? []), node]);
-    }
-    const spans = new Map<string, number>();
-    const measure = (node: AllCanvasNodeData): number => {
-        const kids = children.get(node.id) ?? [];
-        const span = Math.max(crossSize(node), kids.reduce((sum, child) => sum + measure(child), 0) + Math.max(0, kids.length - 1) * 80);
-        spans.set(node.id, span);
-        return span;
-    };
-    measure(root);
-    const sides = new Map<string, number>(), groups: AllCanvasNodeData[][] = [[], []];
-    const totals = [0, 0];
-    const branches = children.get(rootId) ?? [];
-    const branchSides = new Map<string, number>();
-    if (dual) {
-        // Preserve established sides during expansion. On generation/full relayout,
-        // allocate the largest subtrees first, then retain document order per side.
-        for (const branch of branches) if (meta(branch)!.placed && (!candidates.has(branch.id) || !!anchorId)) {
-            const side = mainCenter(branch) >= mainCenter(root) ? 1 : -1;
-            branchSides.set(branch.id, side);
-            totals[side === 1 ? 0 : 1] += spans.get(branch.id)! + 80;
-        }
-        for (const branch of [...branches].sort((a, b) => spans.get(b.id)! - spans.get(a.id)!)) {
-            if (branchSides.has(branch.id)) continue;
-            const side = totals[0] <= totals[1] ? 1 : -1;
-            branchSides.set(branch.id, side);
-            totals[side === 1 ? 0 : 1] += spans.get(branch.id)! + 80;
-        }
-    }
-    for (const branch of branches) {
-        let side = layout === 'left' || layout === 'up' ? -1 : 1;
-        if (dual) side = branchSides.get(branch.id)!;
-        const index = side === 1 ? 0 : 1;
-        groups[index].push(branch);
-        for (const member of [branch, ...descendants(tree, branch.id)]) sides.set(member.id, side);
-    }
-    const sizes = new Map<number, number>([[0, mainSize(root)]]);
-    for (const node of tree) sizes.set(meta(node)!.depth, Math.max(sizes.get(meta(node)!.depth) ?? 0, mainSize(node)));
-    const distances = new Map<number, number>([[0, 0]]);
-    for (let depth = 1; depth <= 6; depth++) distances.set(depth, distances.get(depth - 1)! + (sizes.get(depth - 1) ?? 0) / 2 + (sizes.get(depth) ?? 0) / 2 + 120);
-    const targets = new Map<string, { main: number; cross: number }>();
-    targets.set(rootId, { main: mainCenter(root), cross: crossCenter(root) });
-    const arrange = (siblings: AllCanvasNodeData[], center: number): void => {
-        const span = siblings.reduce((sum, node) => sum + spans.get(node.id)!, 0) + Math.max(0, siblings.length - 1) * 80;
-        let cursor = center - span / 2;
-        for (const node of siblings) {
-            const cross = cursor + spans.get(node.id)! / 2;
-            targets.set(node.id, { main: mainCenter(root) + sides.get(node.id)! * distances.get(meta(node)!.depth)!, cross });
-            arrange(children.get(node.id) ?? [], cross);
-            cursor += spans.get(node.id)! + 80;
-        }
-    };
-    for (const group of groups) arrange(group, crossCenter(root));
-    const affected = new Set([...candidates, ...(anchorId ? [anchorId] : [])].map(id => sides.get(id)));
-    if (anchorId === rootId) { affected.add(1); affected.add(-1); }
-    const movable = new Set(tree.filter(node => node.id !== rootId && affected.has(sides.get(node.id))).map(node => node.id));
-    const anchor = tree.find(node => node.id === anchorId);
-    const anchorTarget = anchor && targets.get(anchor.id);
-    const crossShift = anchor && anchorTarget ? crossCenter(anchor) - anchorTarget.cross : 0;
-    const mainShift = anchor && anchorTarget ? mainCenter(anchor) - anchorTarget.main : 0;
-    const occupied = data.nodes.filter(node => !hidden.has(node.id) && !movable.has(node.id) && node.type !== 'group');
-    const lookup = new Map(tree.map(node => [node.id, node]));
-    for (const node of tree.filter(node => movable.has(node.id)).sort((a, b) => meta(a)!.depth - meta(b)!.depth)) {
-        const state = meta(node)!, target = targets.get(node.id), parent = lookup.get(state.parentId!);
-        if (!target || !parent) continue;
-        // Manual positioning can use fractional canvas coordinates. Preserve the
-        // anchor exactly, rather than rounding it through the layout calculation.
-        if (node.id === anchorId) { state.placed = true; occupied.push(node); continue; }
-        {
-            const side = sides.get(node.id)!;
-            const anchoredSide = anchor && sides.get(anchor.id) === side;
-            let main = target.main + (anchoredSide ? mainShift : 0);
-            // A card displaced by an unrelated canvas obstacle must still have
-            // children farther outward, never a backwards connector.
-            if (node.id !== anchorId) main = side * Math.max(side * main,
-                side * mainCenter(parent) + (mainSize(parent) + mainSize(node)) / 2 + 120);
-            // All members share a lane offset: never move individual children back
-            // toward an old parent position, which crossed adjacent subtree edges.
-            const cross = target.cross + (anchoredSide ? crossShift : 0);
-            do {
-                const x = vertical ? cross : main, y = vertical ? main : cross;
-                node.x = Math.round(x - node.width / 2); node.y = Math.round(y - node.height / 2);
-                main += side * Math.max(80, mainSize(node) + 48);
-            } while (node.id !== anchorId && occupied.some(other => overlaps(node, other)));
-        }
-        state.placed = true; occupied.push(node);
+        const position = positions.get(node.id);
+        if (position) { node.x = position.x; node.y = position.y; meta(node)!.placed = true; }
     }
     updateEdgeSides(data, rootId);
 }
-
 export function updateEdgeSides(data: CanvasData, rootId: string): void {
     const nodes = new Map(data.nodes.map(node => [node.id, node]));
     for (const edge of data.edges) {
