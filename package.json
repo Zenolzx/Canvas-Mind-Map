@@ -1,6 +1,6 @@
 {
   "name": "canvas-mind-map",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Collapsible Markdown mind maps on Obsidian Canvas",
   "main": "main.js",
   "scripts": {
