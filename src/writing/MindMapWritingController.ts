@@ -11,7 +11,6 @@ export interface WritingHooks {
     focus(id: string): void;
     reading(): void;
     changed(): void;
-    reveal(id: string): void;
 }
 export function countWritingWords(text: string): number {
     return (text.match(/[\u3400-\u9fff]|[\p{L}\p{N}]+/gu) ?? []).length;
@@ -89,7 +88,7 @@ export class MindMapWritingController {
         if (this.busy || this.input) return;
         if (id !== DOCUMENT_ROOT && !this.document.sections.has(id)) return;
         if (id !== this.selected) { this.selected = id; this.bindEditor(); }
-        this.emit(false); this.hooks.reveal(id); this.hooks.changed(); this.surface.focus();
+        this.emit(false); this.hooks.changed(); this.surface.focus();
     }
     async execute(operation: StructureOperation): Promise<boolean> {
         if (this.busy || !await this.editor.flush()) return false;
@@ -101,7 +100,6 @@ export class MindMapWritingController {
             const next = transaction.selection.nodeId ?? DOCUMENT_ROOT;
             await this.coordinator.commit(transaction, before, { ...before, selectedNode: next });
             this.selected = next; this.emit(transaction.changeKind === 'structure'); this.bindEditor(transaction.selection.bodyOffset);
-            this.hooks.reveal(next);
             this.hooks.changed(); return true;
         } catch (error) { this.report(error); return false; }
         finally { this.busy = false; }

@@ -16,3 +16,9 @@ exports.Modal = class {
 };
 exports.MarkdownView = class {};
 exports.editorInfoField = require('@codemirror/state').StateField.define({create: () => ({}), update: value => value});
+
+// Test boundary only: production always calls Obsidian's MarkdownRenderer.
+exports.Component = class { load() {} unload() {} };
+exports.MarkdownRenderer = { render: async (app, markdown, element) => {
+    element.innerHTML = require('markdown-it')().render(markdown);
+} };

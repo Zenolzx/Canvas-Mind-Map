@@ -4,6 +4,8 @@ import type { WritingViewSnapshot } from '../writing/WritingViewSnapshot';
 
 export type OrganicLayoutStyle = 'organic-radial' | 'organic-horizontal' | 'compact-organic';
 export interface SavedOrganicState {
+    readerVisible?: boolean;
+    splitRatio?: number;
     fingerprint: string;
     identities?: OrganicIdentity[];
     collapsed: string[];

@@ -1,4 +1,4 @@
-import { ItemView, Menu, Notice, Scope, TFile, WorkspaceLeaf } from 'obsidian';
+import { Component, ItemView, MarkdownRenderer, Menu, Notice, Scope, TFile, WorkspaceLeaf } from 'obsidian';
 import { buildMindMapModel, MindMapModel } from '../core/MindMapModel';
 import { t } from '../i18n';
 import { OrganicLayoutEngine, OrganicLayoutResult } from './OrganicLayoutEngine';
@@ -12,7 +12,7 @@ import { OrganicIdentity, reconcileOrganicModel } from './OrganicNodeIdentity';
 import { OrganicInteractionController } from './OrganicInteractionController';
 import { OrganicToolbar } from './OrganicToolbar';
 import { OrganicExportService } from './OrganicExportService';
-import { DocumentStructure, projectDocumentMindMap, DOCUMENT_ROOT } from '../document';
+import { DocumentStructure, DocumentStructureParser, projectDocumentMindMap, DOCUMENT_ROOT } from '../document';
 import { MindMapWritingController, countWritingWords } from '../writing/MindMapWritingController';
 import { ObsidianDocumentHost } from '../writing/ObsidianDocumentHost';
 import { captureWritingView, restoreWritingView } from '../writing/WritingViewSnapshot';
@@ -58,6 +58,12 @@ export class OrganicMindMapView extends ItemView {
     private writing?: MindMapWritingController;
     private writingLayout?: HTMLElement;
     private editorPane?: HTMLElement;
+    private readerPane?: HTMLElement;
+    private readerComponent?: Component;
+    private readerDocument?: DocumentStructure;
+    private readerKey = '';
+    private readerVisible = false;
+    private readerButton?: HTMLButtonElement;
     private modeButton?: HTMLButtonElement;
     private viewModeButton?: HTMLButtonElement;
     private splitRatio = .6;
@@ -70,12 +76,13 @@ export class OrganicMindMapView extends ItemView {
     getViewType(): string { return ORGANIC_VIEW; }
     getDisplayText(): string { return this.file ? `${this.file.basename} · Organic` : 'Organic Mind Map'; }
     getIcon(): string { return 'git-fork'; }
-    getState(): Record<string, unknown> { return { file: this.sourcePath, writing: this.isWriting, splitRatio: this.splitRatio,
-        editorVisible: this.editorVisible, writingState: this.writing ? captureWritingView(this.writing.document, this.state,
+    getState(): Record<string, unknown> { return { viewport: this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600), file: this.sourcePath, writing: this.isWriting, splitRatio: this.splitRatio,
+        editorVisible: this.editorVisible, readerVisible: this.readerVisible, writingState: this.writing ? captureWritingView(this.writing.document, this.state,
             this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) : this.pendingWritingState }; }
-    async setState(state: { file?: string; writing?: boolean; splitRatio?: number; editorVisible?: boolean; writingState?: unknown }, result: { history: boolean }): Promise<void> {
+    async setState(state: { file?: string; writing?: boolean; splitRatio?: number; editorVisible?: boolean; readerVisible?: boolean; viewport?: SavedOrganicState['viewport']; writingState?: unknown }, result: { history: boolean }): Promise<void> {
         if (Number.isFinite(state.splitRatio)) this.splitRatio = Math.max(.25, Math.min(.8, state.splitRatio!));
         this.editorVisible = state.editorVisible !== false;
+        if (typeof state.readerVisible === 'boolean') this.readerVisible = state.readerVisible;
         this.pendingWritingState = state.writingState;
         this.requestedWritingMode = state.writing;
         if (typeof state.file === 'string') {
@@ -84,11 +91,24 @@ export class OrganicMindMapView extends ItemView {
             if (file instanceof TFile && file.extension === 'md') await this.loadSource(file);
             else this.sourceDeleted(state.file);
         }
+        if (this.pendingWritingState && !this.writing) {
+            await this.toggleWriting();
+            if (!state.writing && this.isWriting) await this.toggleWriting();
+        }
         await super.setState(state, result);
         if (typeof state.writing === 'boolean' && state.writing !== this.isWriting) {
             await this.toggleWriting();
         }
         this.requestedWritingMode = undefined;
+        if (Number.isFinite(state.splitRatio)) this.splitRatio = Math.max(.25, Math.min(.8, state.splitRatio!));
+        if (typeof state.readerVisible === 'boolean') this.readerVisible = state.readerVisible;
+        this.applySplit();
+        const viewport = state.viewport;
+        if (viewport && Number.isFinite(viewport.zoom) && viewport.zoom >= .05 && viewport.zoom <= 4 &&
+            Number.isFinite(viewport.center?.x) && Number.isFinite(viewport.center?.y)) {
+            this.scale = viewport.zoom;
+            this.viewport.center(viewport.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform();
+        }
     }
     sourceRenamed(oldPath: string, path: string): void {
         if (this.sourcePath !== oldPath && !this.sourcePath?.startsWith(oldPath + '/')) return;
@@ -107,12 +127,12 @@ export class OrganicMindMapView extends ItemView {
         if (this.status) this.status.textContent = t('无法读取原笔记，请确认文件仍然存在。');
     }
     private remember(userAction = true): void {
-        if (userAction && this.writing) this.app.workspace.requestSaveLayout();
+        if (userAction) this.app.workspace.requestSaveLayout();
         if (!this.file || !this.model || !this.store) return;
         const snapshot: SavedOrganicState = { fingerprint: this.fingerprint, identities: this.identities, collapsed: [...this.collapsed],
             viewport: this.interaction.focusPaused && this.searchViewport ? this.searchViewport : this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600),
             focusNode: this.state.focusNode, reading: { ...this.state.reading },
-            selectedNode: this.state.selectedNode, layout: this.state.layout, branchStyles: this.state.branchStyles,
+            readerVisible: this.readerVisible, splitRatio: this.splitRatio, selectedNode: this.state.selectedNode, layout: this.state.layout, branchStyles: this.state.branchStyles,
             writing: this.writing ? { enabled: this.isWriting, splitRatio: this.splitRatio, editorVisible: this.editorVisible,
                 snapshot: captureWritingView(this.writing.document, this.state, this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) } : undefined };
         if (userAction) this.store.put(this.file.path, snapshot, this.stateOwner);
@@ -150,6 +170,10 @@ export class OrganicMindMapView extends ItemView {
         this.viewModeButton.onclick = () => { if (this.isWriting) void this.toggleWriting(); };
         this.modeButton = writingActions.createEl('button', { text: 'Edit', attr: { 'aria-pressed': 'false' } });
         this.modeButton.onclick = () => { if (!this.isWriting) void this.toggleWriting(); };
+        this.readerButton = writingActions.createEl('button', { text: 'Show reader' });
+        this.readerButton.onclick = () => {
+            this.readerVisible = !this.readerVisible; this.applySplit(); this.remember();
+        };
         const action = (text: string, run: () => unknown) => {
             const button = writingActions.createEl('button', { text, cls: 'cmm-writing-only' });
             button.onclick = () => { void run(); };
@@ -174,13 +198,9 @@ export class OrganicMindMapView extends ItemView {
             context.font = `${weight} ${size}px ${family}`; return context.measureText(text).width;
         };
         this.svg.style.fontFamily = family;
-        let width = this.svg.clientWidth || 800, height = this.svg.clientHeight || 600;
         this.resizeObserver = new ResizeObserver(() => {
-            const nextWidth = this.svg.clientWidth, nextHeight = this.svg.clientHeight;
-            if (!nextWidth || !nextHeight || (width === nextWidth && height === nextHeight)) return;
-            const center = this.viewport.snapshot(width, height).center;
-            width = nextWidth; height = nextHeight;
-            this.viewport.center(center, width, height); this.transform();
+            // Resizing is not a viewport command: preserve the live transform.
+            this.transform(); this.remember(false);
         });
         this.resizeObserver.observe(this.svg);
         let drag: { id: number; x: number; y: number } | undefined;
@@ -191,7 +211,7 @@ export class OrganicMindMapView extends ItemView {
         });
         this.svg.addEventListener('pointermove', event => {
             if (!drag || event.pointerId !== drag.id) return;
-            this.offset.x += event.clientX - drag.x; this.offset.y += event.clientY - drag.y;
+            this.viewport.pan(event.clientX - drag.x, event.clientY - drag.y);
             drag.x = event.clientX; drag.y = event.clientY; this.scheduleTransform(); this.remember();
         });
         const stop = () => { drag = undefined; };
@@ -262,23 +282,9 @@ export class OrganicMindMapView extends ItemView {
             const source = await this.documentHost.read(this.file.path);
             if (source.text !== this.sourceText) await this.loadSource(this.file, false);
             const previous = this.model;
-            const layout = this.contentEl.createDiv({ cls: 'cmm-writing-split' }); this.writingLayout = layout;
-            const map = layout.createDiv({ cls: 'cmm-writing-map' }); map.append(this.svg);
-            const divider = layout.createDiv({ cls: 'cmm-writing-divider', attr: { role: 'separator', tabindex: '0', 'aria-label': '调整脑图与正文宽度', 'aria-orientation': 'vertical' } });
-            this.editorPane = layout.createDiv({ cls: 'cmm-writing-editor' });
-            divider.onpointerdown = event => { divider.setPointerCapture(event.pointerId); event.preventDefault(); };
-            divider.onpointermove = event => {
-                if (!divider.hasPointerCapture(event.pointerId)) return;
-                const rect = layout.getBoundingClientRect();
-                this.splitRatio = Math.max(.25, Math.min(.8, (event.clientX - rect.left) / rect.width)); this.applySplit();
-            };
-            divider.onpointerup = event => { divider.releasePointerCapture(event.pointerId); this.remember(); };
-            divider.onkeydown = event => {
-                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-                event.preventDefault(); this.splitRatio = Math.max(.25, Math.min(.8, this.splitRatio + (event.key === 'ArrowLeft' ? -.05 : .05)));
-                this.applySplit(); this.remember();
-            };
-            this.writing = new MindMapWritingController(this.app, this.documentHost, source.text, this.file.path, this.svg, map, this.editorPane, {
+            this.ensureSplit();
+            const map = this.writingLayout!.querySelector<HTMLElement>('.cmm-writing-map')!;
+            this.writing = new MindMapWritingController(this.app, this.documentHost, source.text, this.file.path, this.svg, map, this.editorPane!, {
                 publish: (doc, selected, changed) => this.publishWriting(doc, selected, changed),
                 snapshot: () => ({ selectedNode: this.state.selectedNode, collapsed: [...this.collapsed], zoom: this.scale,
                     center: this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600).center, focusNode: this.state.focusNode }),
@@ -286,9 +292,8 @@ export class OrganicMindMapView extends ItemView {
                     this.collapsed = new Set(snapshot.collapsed); this.state.focusNode = snapshot.focusNode;
                     this.scale = snapshot.zoom; this.viewport.center(snapshot.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.draw();
                 }, focus: id => this.focusBranch(id), reading: () => { void this.toggleWriting(); }, changed: () => this.remember(),
-                reveal: id => this.centerNode(id),
             });
-            const mapping = new Map<string, string>();
+            const mapping = new Map<string, string>([[DOCUMENT_ROOT, DOCUMENT_ROOT]]);
             for (const node of previous?.nodes ?? []) {
                 const section = Array.from(this.writing.document.sections.values()).find(s => s.line === node.source.line && s.headingText === node.title);
                 if (section) mapping.set(node.id, section.id);
@@ -297,33 +302,107 @@ export class OrganicMindMapView extends ItemView {
             this.collapsed = new Set([...this.collapsed].map(id => mapping.get(id)).filter((id): id is string => !!id));
             this.state.focusNode = remap(this.state.focusNode); this.state.reading = { rootNode: null, currentNode: null };
             this.state.branchStyles = Object.fromEntries(Object.entries(this.state.branchStyles).filter(([id]) => mapping.has(id)).map(([id, style]) => [mapping.get(id)!, style]));
-            this.state.selectedNode = remap(this.state.selectedNode) ?? DOCUMENT_ROOT;
+            this.state.selectedNode = remap(this.state.selectedNode) ?? remap(previous?.rootId ?? null) ?? DOCUMENT_ROOT;
             const restoreViewport = restoreWritingView(this.pendingWritingState, this.writing.document, this.state);
             this.pendingWritingState = undefined;
             const selected = this.state.selectedNode ?? DOCUMENT_ROOT;
             this.publishWriting(this.writing.document, selected, true);
             await this.writing.select(selected);
+            this.contentEl.addClass('is-writing'); this.applySplit();
             if (restoreViewport) {
                 this.scale = restoreViewport.zoom;
                 this.viewport.center(restoreViewport.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform();
             }
-            this.contentEl.addClass('is-writing'); this.applySplit();
             this.modeButton!.setAttribute('aria-pressed', 'true'); this.viewModeButton!.setAttribute('aria-pressed', 'false');
             this.app.workspace.requestSaveLayout();
             this.remember();
         } catch (error) { new Notice(error instanceof Error ? error.message : String(error)); }
         finally { this.switchingMode = false; }
     }
+    private ensureSplit(): void {
+        if (this.writingLayout) return;
+        const layout = this.contentEl.createDiv({ cls: 'cmm-writing-split' }); this.writingLayout = layout;
+        const map = layout.createDiv({ cls: 'cmm-writing-map' }); map.append(this.svg);
+        const divider = layout.createDiv({ cls: 'cmm-writing-divider', attr: { role: 'separator', tabindex: '0', 'aria-label': '调整脑图与正文宽度', 'aria-orientation': 'vertical' } });
+        this.editorPane = layout.createDiv({ cls: 'cmm-writing-editor' });
+        divider.onpointerdown = event => { divider.setPointerCapture(event.pointerId); event.preventDefault(); };
+        divider.onpointermove = event => {
+            if (!divider.hasPointerCapture(event.pointerId)) return;
+            const rect = layout.getBoundingClientRect();
+            this.splitRatio = Math.max(.25, Math.min(.8, (event.clientX - rect.left) / rect.width)); this.applySplit();
+        };
+        divider.onpointerup = event => { divider.releasePointerCapture(event.pointerId); this.remember(); };
+        divider.onkeydown = event => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault(); this.splitRatio = Math.max(.25, Math.min(.8, this.splitRatio + (event.key === 'ArrowLeft' ? -.05 : .05)));
+            this.applySplit(); this.remember();
+        };
+        this.readerPane = layout.createDiv({ cls: 'cmm-organic-reader markdown-rendered', attr: { 'aria-label': 'Section reader' } });
+    }
     private applySplit(): void {
+        if (this.readerVisible || this.isWriting) this.ensureSplit();
         this.writingLayout?.style.setProperty('--cmm-map-ratio', `${this.splitRatio * 100}%`);
-        this.writingLayout?.classList.toggle('editor-hidden', !this.editorVisible || !this.isWriting);
+        this.writingLayout?.classList.toggle('editor-hidden', this.isWriting ? !this.editorVisible : !this.readerVisible);
+        if (this.editorPane) this.editorPane.hidden = !this.isWriting;
+        if (this.readerPane) this.readerPane.hidden = this.isWriting || !this.readerVisible;
+        if (this.readerButton) {
+            this.readerButton.hidden = this.isWriting;
+            this.readerButton.textContent = this.readerVisible ? 'Hide reader' : 'Show reader';
+            this.readerButton.setAttribute('aria-pressed', String(this.readerVisible));
+        }
+        this.updateReader();
+    }
+    private updateReader(): void {
+        if (!this.readerPane || !this.readerVisible || this.isWriting || !this.model) return;
+        const node = this.model.nodes.find(n => n.id === this.state.selectedNode) ?? this.model.nodes.find(n => n.id === this.model!.rootId)!;
+        const doc = this.writing?.document ?? this.readerDocument;
+        if (!doc) return;
+        const key = JSON.stringify([doc.sourcePath, doc.text, node.id]);
+        if (key === this.readerKey) return;
+        this.readerKey = key;
+        this.readerComponent?.unload();
+        const component = this.readerComponent = new Component(); component.load();
+        this.readerPane.empty(); this.readerPane.scrollTop = 0;
+        this.readerPane.createEl('h2', { text: node.title });
+        const section = node.headingLevel ? [...doc.sections.values()].find(s => s.line === node.source.line) : undefined;
+        const range = section?.body ?? doc.introduction;
+        const body = this.readerPane.createDiv();
+        // A replaced render owns a detached target; it cannot overwrite the new selection.
+        void MarkdownRenderer.render(this.app, doc.text.slice(range.start, range.end), body, doc.sourcePath, component)
+            .then(() => { if (this.readerComponent !== component) component.unload(); })
+            .catch(error => { if (this.readerComponent === component) body.textContent = '无法渲染此章节'; console.error(error); });
+        if (node.children.length) {
+            this.readerPane.createEl('h3', { text: '本节内容' });
+            const list = this.readerPane.createEl('ul');
+            for (const id of node.children) {
+                const child = this.model.nodes.find(n => n.id === id); if (!child) continue;
+                const link = list.createEl('li').createEl('button', { text: child.title, cls: 'cmm-reader-child' });
+                link.onclick = () => { void this.selectHeading(id); };
+            }
+        }
+    }
+    private async selectHeading(id: string): Promise<void> {
+        if (this.writing) { await this.writing.select(id); return; }
+        this.state.selectedNode = id; this.draw(); this.remember();
     }
     private publishWriting(doc: DocumentStructure, selected: string, structureChanged: boolean): void {
-        this.model = projectDocumentMindMap(doc, this.file ? `${this.file.basename}.md` : doc.sourcePath);
+        const anchor = this.state.selectedNode ?? undefined;
+        const topology = (model: MindMapModel | undefined) => JSON.stringify(model?.nodes.map(n => [n.id, n.parentId, n.children]));
+        const previousTopology = topology(this.model);
+        const promotedRoot = this.model?.rootId !== DOCUMENT_ROOT && doc.roots.length === 1;
+        this.model = projectDocumentMindMap(doc, this.file ? this.file.basename : doc.sourcePath);
+        // Keep the existing View root semantics when first opening Edit.
+        if (promotedRoot) {
+            this.model.rootId = doc.roots[0];
+            this.model.nodes = this.model.nodes.filter(n => n.id !== DOCUMENT_ROOT).map(n => ({ ...n,
+                depth: n.depth - 1, parentId: n.id === doc.roots[0] ? undefined : n.parentId }));
+        }
         this.sourceText = doc.text; this.fingerprint = sourceFingerprint(doc.text);
         this.state.selectedNode = selected;
-        let parent = doc.sections.get(selected)?.parentId;
-        while (parent) { this.collapsed.delete(parent); parent = doc.sections.get(parent)?.parentId; }
+        if (structureChanged) {
+            let parent = doc.sections.get(selected)?.parentId;
+            while (parent) { this.collapsed.delete(parent); parent = doc.sections.get(parent)?.parentId; }
+        }
         const ids = new Set(this.model.nodes.map(node => node.id));
         this.collapsed = new Set([...this.collapsed].filter(id => ids.has(id)));
         if (this.state.focusNode && !ids.has(this.state.focusNode)) this.state.focusNode = null;
@@ -332,7 +411,7 @@ export class OrganicMindMapView extends ItemView {
             if (!focused || !current || current.heading.start < focused.subtree.start || current.heading.start >= focused.subtree.end) this.state.focusNode = null;
         }
         if (structureChanged) this.layoutEpoch++;
-        this.interaction.update(this.model); this.draw(undefined, structureChanged);
+        this.interaction.update(this.model); this.draw(structureChanged && previousTopology !== topology(this.model) ? (this.model.nodes.some(n => n.id === anchor) ? anchor : selected) : undefined, structureChanged);
         this.status.textContent = `${doc.order.length} 章节 · Enter 同级 / Tab 子章节 / F2 重命名${doc.diagnostics.length ? ' · 当前文档需修复：' + doc.diagnostics[0].message : ''}`;
     }
     private async exportMap(format: 'svg' | 'png'): Promise<void> {
@@ -386,15 +465,18 @@ export class OrganicMindMapView extends ItemView {
         const node = this.result?.nodes.find(n => n.id === id); if (!node) return;
         this.viewport.follow({ x: node.x + node.width / 2, y: node.y + node.height / 2 }, this.svg.clientWidth || 800, this.svg.clientHeight || 600,
             this.contentEl.ownerDocument?.defaultView, this.settings().animation ? this.settings().animationDuration : 0,
-            offset => this.scene.setAttribute('transform', `translate(${offset.x} ${offset.y}) scale(${this.scale})`));
+            offset => {
+                this.scene.setAttribute('transform', `translate(${offset.x} ${offset.y}) scale(${this.scale})`);
+                this.remember(false);
+            });
     }
     private contextMenu(id: string, event: MouseEvent): void {
         if (this.writing?.active) { this.writing.menu(id, event); return; }
-        this.state.selectedNode = id; this.remember();
+        void this.selectHeading(id);
         const menu = new Menu();
         menu.addItem(item => item.setTitle(t('聚焦当前分支')).onClick(() => this.focusBranch(id)));
         menu.addItem(item => item.setTitle(t('阅读此分支')).onClick(() => this.readBranch(id)));
-        menu.addItem(item => item.setTitle(t('打开原文')).onClick(() => { void this.navigate(id); }));
+        menu.addItem(item => item.setTitle(t('打开原文')).onClick(() => { void this.navigate(id, true); }));
         menu.showAtMouseEvent(event);
     }
 
@@ -402,7 +484,8 @@ export class OrganicMindMapView extends ItemView {
         if (this.writing && file.path === this.writing.document.sourcePath) { await this.writing.externalChange(); return; }
         if (this.writing) {
             await this.writing.close(); this.writing = undefined;
-            this.contentEl.append(this.svg); this.writingLayout?.remove(); this.writingLayout = undefined; this.editorPane = undefined;
+            this.contentEl.append(this.svg); this.writingLayout?.remove(); this.writingLayout = undefined; this.editorPane = undefined; this.readerPane = undefined; this.readerKey = '';
+            this.readerComponent?.unload(); this.readerComponent = undefined;
             this.contentEl.removeClass('is-writing');
         }
         const revision = ++this.revision;
@@ -420,10 +503,13 @@ export class OrganicMindMapView extends ItemView {
             if (layoutChanged) this.layoutEpoch++;
             this.file = file; this.sourcePath = file.path; this.model = model; this.sourceText = markdown;
             this.fingerprint = fingerprint; this.identities = mapped.identities;
+            this.readerDocument = new DocumentStructureParser().parse(markdown, { sourcePath: file.path });
             const restore = saved?.identities ? saved : undefined;
             if (reset) {
                 this.state.reset(model, this.settings().defaultLayout);
                 if (restore) this.state.restore(restore, model);
+                if (saved) { this.readerVisible = saved.readerVisible === true; this.splitRatio = saved.splitRatio ?? saved.writing?.splitRatio ?? .6; }
+                this.applySplit();
             }
             else {
                 const ids = new Set(model.nodes.map(n => n.id));
@@ -434,7 +520,8 @@ export class OrganicMindMapView extends ItemView {
                 else if (this.state.reading.currentNode && !ids.has(this.state.reading.currentNode)) this.state.reading.currentNode = this.state.reading.rootNode;
             }
             this.interaction.update(model);
-            if (layoutChanged) this.draw();
+            if (layoutChanged) this.draw(reset ? undefined : this.state.selectedNode ?? undefined);
+            this.updateReader();
             if (restore) {
                 this.scale = restore.viewport.zoom;
                 this.viewport.center(restore.viewport.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600);
@@ -445,7 +532,12 @@ export class OrganicMindMapView extends ItemView {
             if (reset && saved?.writing && !this.writing) {
                 this.splitRatio = saved.writing.splitRatio; this.editorVisible = saved.writing.editorVisible;
                 this.pendingWritingState = this.pendingWritingState ?? saved.writing.snapshot;
-                if (this.requestedWritingMode ?? saved.writing.enabled) await this.toggleWriting();
+                await this.toggleWriting();
+                if (!(this.requestedWritingMode ?? saved.writing.enabled) && this.isWriting) await this.toggleWriting();
+                // Restore once against the final pane dimensions, never on a later mode switch.
+                this.scale = saved.viewport.zoom;
+                this.viewport.center(saved.viewport.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform();
+                this.remember(false);
             }
         } catch (error) {
             if (revision !== this.revision || this.closed) return;
@@ -497,9 +589,11 @@ export class OrganicMindMapView extends ItemView {
         });
         this.toolbar?.update(this.interaction.search.index, this.interaction.search.results.length, !!this.state.focusNode, !!this.state.reading.rootNode, this.state.layout);
         this.transform();
+        this.updateReader();
     }
 
-    private async navigate(id: string): Promise<void> {
+    private async navigate(id: string, sourceOnly = false): Promise<void> {
+        if (!sourceOnly && !this.isWriting && this.readerVisible) { await this.selectHeading(id); return; }
         if (this.writing?.active) { await this.writing.select(id); return; }
         const node = this.model?.nodes.find(n => n.id === id), file = this.file;
         if (!node || !file) return;
@@ -542,6 +636,7 @@ export class OrganicMindMapView extends ItemView {
     }
     async onClose(): Promise<void> {
         await this.writing?.close(); this.writing = undefined;
+        this.readerComponent?.unload(); this.readerComponent = undefined;
         this.closed = true; this.revision++; this.autoRefresh?.close(); this.viewport.cancel(); this.renderer.close?.();
         if (this.transformFrame !== undefined) this.contentEl.ownerDocument?.defaultView?.cancelAnimationFrame(this.transformFrame);
         this.resizeObserver?.disconnect(); this.contentEl.empty();

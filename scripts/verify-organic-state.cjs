@@ -14,7 +14,7 @@ const { OrganicAutoRefreshController } = load('src/organic/OrganicAutoRefreshCon
 const { OrganicViewState } = load('src/organic/OrganicViewState.ts');
 const { OrganicInteractionController } = load('src/organic/OrganicInteractionController.ts');
 (async () => {
-    const saved = { fingerprint: sourceFingerprint('# A'), collapsed: ['heading:/A:1'],
+    const saved = { readerVisible: true, splitRatio: .67, fingerprint: sourceFingerprint('# A'), collapsed: ['heading:/A:1'],
         viewport: { zoom: 2, center: { x: 100, y: -30 } }, focusNode: null,
         reading: { rootNode: null, currentNode: null }, selectedNode: null, layout: 'organic-radial' };
     let enabled = true, writes = [], settings = { language: 'auto' }, release;
@@ -31,6 +31,8 @@ const { OrganicInteractionController } = load('src/organic/OrganicInteractionCon
     await store.flush(); assert.equal(writes.length, 2, 'closing idle tab must not overwrite newer state');
     const reopened = new OrganicStateStore(writes[1].organicState, async () => {}, () => enabled);
     assert.deepEqual(reopened.get('a.md').viewport, saved.viewport);
+    assert.equal(reopened.get('a.md').readerVisible, true);
+    assert.equal(reopened.get('a.md').splitRatio, .67);
     reopened.rename('a.md', 'folder/a.md'); assert.equal(reopened.get('a.md'), undefined);
     assert.ok(reopened.get('folder/a.md')); reopened.remove('folder/a.md'); await reopened.flush();
     assert.equal(reopened.get('folder/a.md'), undefined);
@@ -51,6 +53,16 @@ const { OrganicInteractionController } = load('src/organic/OrganicInteractionCon
     assert.deepEqual(viewport.snapshot(1000, 700), saved.viewport);
     viewport.center(saved.viewport.center, 500, 300);
     assert.deepEqual(viewport.snapshot(500, 300), saved.viewport);
+    let callback, painted;
+    const win = { performance: { now: () => 0 }, requestAnimationFrame: cb => { callback = cb; return 1; }, cancelAnimationFrame: () => { callback = undefined; } };
+    viewport.follow({ x: 500, y: 300 }, 800, 600, win, 100, offset => { painted = { ...offset }; });
+    callback(40);
+    assert.deepEqual(viewport.offset, painted, 'animation frame must update canonical viewport');
+    viewport.pan(31, -17);
+    assert.deepEqual(viewport.offset, { x: painted.x + 31, y: painted.y - 17 });
+    const interrupted = { ...viewport.offset }; viewport.cancel();
+    assert.deepEqual(viewport.offset, interrupted, 'cancel must not snap to old animation target');
+    assert.equal(callback, undefined);
     const parse = text => buildMindMapModel(text, { title: 'note' });
     const old = reconcileOrganicModel(parse('# Root\n## A\nunique body\n## Repeat\n## Repeat'));
     const renamed = reconcileOrganicModel(parse('# Root\n## Renamed\nunique body\n## Repeat\n## Repeat'), old.identities);
@@ -87,5 +99,5 @@ const { OrganicInteractionController } = load('src/organic/OrganicInteractionCon
     interaction.toggle(node('Hidden')); assert.equal(state.reading.currentNode, node('Hidden'));
     assert.ok(interaction.projection().collapsed.has(node('Hidden')), 'manual collapse takes precedence over reading reveal');
     assert.equal(model.nodes.length, 6, 'projection must not mutate source model');
-    console.log('PASS: serialized settings/state writes, reopening, last interaction wins, rename/delete/reset, disabled/bad state and viewport center.');
+    console.log('PASS: serialized settings/state writes, reopening, last interaction wins, rename/delete/reset, disabled/bad state, Reader width/visibility, canonical animation frames and interrupted pan.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

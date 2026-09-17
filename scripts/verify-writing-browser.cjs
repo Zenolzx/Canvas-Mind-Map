@@ -138,6 +138,31 @@ async function run(){
  assert(cancelledSave&&nativeSource==='# Closed peer\\nbody\\n','closed native view must not replay stale delayed save');
  hiddenPreviewCM.destroy();nativeParent.remove();nativeHost.dispose();log('PASS closing a native peer during commit cancels stale delayed save');
  log('PASS native peer lease, in-flight/deferred saves, synchronization and dirty-buffer rejection');
+ // Production View + CodeMirror + real ResizeObserver regression.
+ view.viewport.pan(190,-85);view.zoom(1.2,100,100);await tick();
+ const viewport=()=>JSON.stringify({offset:view.offset,scale:view.scale});const stable=viewport();
+ for(const section of w.document.order.slice(0,4)){await w.select(section);await tick();assert(viewport()===stable,'selection preserves pan/zoom');}
+ await w.inline('rename',id('Train'));assert(viewport()===stable,'F2/rename entry preserves viewport');
+ titleInput().dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ await view.toggleWriting();view.readerVisible=true;view.applySplit();await tick();
+ assert(viewport()===stable,'Edit to Reader preserves viewport');
+ for(const section of w.document.order.slice(0,4)){await view.navigate(section);await tick();assert(viewport()===stable,'Reader navigation preserves viewport');}
+ for(const visible of [false,true,false,true]){view.readerVisible=visible;view.applySplit();await tick();assert(viewport()===stable,'Reader resize preserves viewport');}
+ const sourceBefore=source;
+ const link=view.readerPane.querySelector('.cmm-reader-child');if(link){link.click();await tick();assert(viewport()===stable,'child navigation preserves viewport');}
+ assert(source===sourceBefore,'Reader never writes source');
+ await view.toggleWriting();await tick();assert(viewport()===stable,'Reader to Edit preserves viewport');
+ assert(view.editorPane.querySelector('.cm-editor'),'Edit retains source editor');
+ const session=view.getState();
+ const peer=new OrganicMindMapView({app},undefined,()=>({animation:false,autoRefresh:true}),host);
+ await peer.onOpen();await peer.setState(session,{history:false});await tick();
+ assert(JSON.stringify(peer.viewport.snapshot(peer.svg.clientWidth,peer.svg.clientHeight))===JSON.stringify(session.viewport),'session restores viewport against final split dimensions');
+ peer.viewport.pan(-70,40);peer.readerVisible=true;await peer.toggleWriting();peer.applySplit();
+ await peer.navigate(peer.writing.document.order.at(-1));await tick();
+ assert(viewport()===stable,'second tab cannot change first viewport');
+ assert(view.isWriting,'second tab mode is independent');
+ await peer.onClose();peer.contentEl.remove();
+ log('PASS viewport pan/zoom, selection, Reader children, mode/split resize, rename and read-only Reader');
  window.writingTest={view,app,getSource:()=>source,getWrites:()=>writes};
  log('ALL WRITING BROWSER CHECKS PASSED');window.testDone=true;
 }

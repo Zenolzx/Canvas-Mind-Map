@@ -200,3 +200,11 @@
 .cmm-writing-drop-zones > div { display: flex; align-items: center; justify-content: center; }
 .cmm-writing-drop-zones > .is-target { color: var(--text-on-accent, white); background: var(--interactive-accent); }
 @media (prefers-reduced-motion: reduce) { .cmm-writing-split * { scroll-behavior: auto; } }
+
+/* View Reader shares Edit's split grid and width, but owns its scroll area. */
+.cmm-organic-reader { min-width: 0; min-height: 0; overflow: auto; padding: 20px; border-left: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; }
+.cmm-organic-reader h2 { margin-top: 0; }
+.cmm-organic-reader img { max-width: 100%; }
+.cmm-organic-reader pre { overflow-x: auto; }
+.cmm-organic-reader .cmm-reader-child { white-space: normal; height: auto; text-align: left; color: var(--text-accent); background: transparent; box-shadow: none; padding: 4px 0; }
+.cmm-writing-split > [hidden], .cmm-writing-split.editor-hidden > .cmm-organic-reader { display: none; }

@@ -72,7 +72,7 @@ function normalize(value: unknown): SavedOrganicState | undefined {
     if (s.branchStyles && typeof s.branchStyles === 'object') for (const [id, style] of Object.entries(s.branchStyles)) {
         if (style && /^#[\da-f]{6}$/i.test(style.color) && (style.side === 0 || style.side === 1)) branchStyles[id] = style;
     }
-    return { fingerprint: s.fingerprint, identities, branchStyles, writing, collapsed: s.collapsed.filter(x => typeof x === 'string'),
+    return { readerVisible: s.readerVisible === true, splitRatio: Number.isFinite(s.splitRatio) ? Math.max(.25, Math.min(.8, s.splitRatio!)) : undefined, fingerprint: s.fingerprint, identities, branchStyles, writing, collapsed: s.collapsed.filter(x => typeof x === 'string'),
         viewport: { zoom: v.zoom, center: { ...v.center } }, focusNode: id(s.focusNode), selectedNode: id(s.selectedNode),
         reading: { rootNode: id(s.reading?.rootNode), currentNode: id(s.reading?.currentNode) },
         layout: s.layout === 'organic-horizontal' || s.layout === 'compact-organic' ? s.layout : 'organic-radial' };
