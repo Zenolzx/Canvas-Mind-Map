@@ -1,6 +1,20 @@
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
+    'Organic：从原笔记刷新': 'Organic: Refresh from source note',
+    'Organic 状态保存失败，请查看控制台。': 'Organic state could not be saved. Check the console.',
+    '展开 / 折叠': 'Expand / Collapse', '外观': 'Appearance',
+    '导出': 'Export', 'PNG 导出倍率': 'PNG export scale', '已导出：{path}': 'Exported: {path}',
+    'PNG 尺寸过大，请降低导出倍率、折叠分支或使用 SVG。': 'PNG is too large. Lower the scale, collapse branches or use SVG.',
+    '导出失败，请查看控制台。': 'Export failed. Check the console.',
+    '动画': 'Animation', '动画时长': 'Animation duration (ms)',
+    'Organic：搜索标题': 'Organic: Search headings', '阅读此分支': 'Read this branch', '退出阅读模式': 'Exit reading mode',
+    '上一项': 'Previous result', '下一项': 'Next result', '清除搜索': 'Clear search', '打开原文': 'Open source',
+    '原笔记变化时自动刷新': 'Automatically refresh when source changes',
+    '记住 Organic 视图状态': 'Remember Organic view state',
+    '默认 Organic 布局': 'Default Organic layout',
+    '重置已保存的 Organic 视图状态': 'Reset saved Organic view state',
+    '重置': 'Reset',
     '应用分支样式（保留自定义）': 'Apply branch appearance (keep customizations)',
     '已应用分支样式，保留自定义颜色和尺寸。': 'Branch appearance applied. Custom colors and sizes preserved.',
     '以 Organic 模式打开笔记': 'Open note in Organic mode',

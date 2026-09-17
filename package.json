@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "test": "node scripts/verify-layout.cjs && node scripts/verify-native-appearance.cjs && node scripts/verify-organic.cjs && node scripts/verify-organic-view.cjs",
+    "test": "node scripts/verify-layout.cjs && node scripts/verify-native-appearance.cjs && node scripts/verify-native-menu.cjs && node scripts/verify-organic.cjs && node scripts/verify-organic-view.cjs && node scripts/verify-organic-state.cjs && node scripts/verify-organic-scale.cjs && node scripts/verify-document-structure.cjs && node scripts/verify-document-transactions.cjs && node scripts/verify-document-conflicts.cjs && node scripts/verify-section-text.cjs && node scripts/verify-section-history.cjs && node scripts/verify-writing-state.cjs",
+    "test:document": "node scripts/verify-document-structure.cjs && node scripts/verify-document-transactions.cjs && node scripts/verify-document-conflicts.cjs && node scripts/verify-section-text.cjs && node scripts/verify-section-history.cjs && node scripts/verify-writing-state.cjs",
+    "test:writing-browser": "node scripts/verify-writing-browser.cjs && node scripts/run-writing-browser.cjs",
+    "test:section-text": "node scripts/verify-section-text.cjs",
+    "preview:organic-regression": "node scripts/verify-organic-browser.cjs && node scripts/serve-organic-preview.cjs",
     "preview:organic": "node scripts/verify-organic.cjs --preview"
   },
   "keywords": [],
@@ -20,6 +24,12 @@
     "typescript": "4.7.4"
   },
   "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/lang-markdown": "6.3.2",
+    "@codemirror/language": "6.11.0",
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
+    "markdown-it": "15.0.2",
     "monkey-around": "3.0.0"
   }
 }

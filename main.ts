@@ -1,18 +1,25 @@
-import { Menu, moment, Plugin, PluginSettingTab, TFile } from 'obsidian';
+import { Menu, moment, Notice, Plugin, PluginSettingTab, TFile } from 'obsidian';
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
-import { LAYOUT_LABEL_KEYS, MindmapSettings } from './src/settings';
+import { LAYOUT_LABEL_KEYS, MindmapSettings, normalizeOrganicSettings } from './src/settings';
+import { PluginDataStore } from './src/PluginDataStore';
+import { OrganicStateStore } from './src/organic/OrganicStateStore';
+import { renderOrganicSettings } from './src/organic/OrganicSettings';
 import { setLanguage, t } from './src/i18n';
 import { ORGANIC_VIEW, OrganicMindMapView } from './src/organic/OrganicMindMapView';
+import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
 
 export default class CanvasMindMapPlugin extends Plugin {
     settings: MindmapSettings;
     mindmap: CanvasMindmap;
+    organicStates: OrganicStateStore;
+    private dataStore: PluginDataStore;
 
     async onload(): Promise<void> {
         const saved = await this.loadData() ?? {};
         this.settings = {
+            organic: normalizeOrganicSettings(saved.organic),
             mindmapLevels: normalizeMindmapLevels(saved.mindmapLevels),
             lastMode: saved.lastMode === 'body' ? 'body' : 'title',
             focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
@@ -20,8 +27,43 @@ export default class CanvasMindMapPlugin extends Plugin {
             language: saved.language === 'en' || saved.language === 'zh-CN' ? saved.language : 'auto',
             lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'horizontal',
         };
+        this.dataStore = new PluginDataStore(() => ({ ...saved, ...this.settings, organicState: this.organicStates.data }), data => this.saveData(data));
+        this.organicStates = new OrganicStateStore(saved.organicState, () => this.dataStore.save(), () => this.settings.organic.rememberState,
+            error => { console.error('Organic state save failed', error); new Notice(t('Organic 状态保存失败，请查看控制台。')); });
+        this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+            this.organicStates.rename(oldPath, file.path);
+            for (const leaf of this.app.workspace.getLeavesOfType(ORGANIC_VIEW))
+                (leaf.view as OrganicMindMapView).sourceRenamed(oldPath, file.path);
+        }));
+        this.registerEvent(this.app.vault.on('delete', file => {
+            this.organicStates.remove(file.path);
+            for (const leaf of this.app.workspace.getLeavesOfType(ORGANIC_VIEW))
+                (leaf.view as OrganicMindMapView).sourceDeleted(file.path);
+        }));
+        this.register(() => { void this.organicStates.flush().catch(console.error); });
         setLanguage(this.settings.language, moment.locale());
-        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf));
+        const documentHost = new ObsidianDocumentHost(this.app);
+        this.register(() => documentHost.dispose());
+        this.registerEditorExtension(documentHost.extension);
+        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost));
+        this.addCommand({ id: 'toggle-mind-map-writing', name: 'Organic: Toggle Mind Map Writing', checkCallback: checking => {
+            const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
+            if (!view) return false; if (!checking) void view.toggleWriting(); return true;
+        } });
+        for (const command of ['rename', 'sibling', 'child', 'promote', 'demote', 'delete', 'undo', 'redo', 'editor'] as const) {
+            this.addCommand({ id: `mind-map-writing-${command}`, name: `Mind Map Writing: ${command}`, checkCallback: checking => {
+                const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
+                if (!view?.isWriting) return false; if (!checking) view.writingCommand(command); return true;
+            } });
+        }
+        this.addCommand({ id: 'search-organic-headings', name: t('Organic：搜索标题'), checkCallback: checking => {
+            const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
+            if (!view) return false; if (!checking) view.openSearch(); return true;
+        } });
+        this.addCommand({ id: 'refresh-organic-mind-map', name: t('Organic：从原笔记刷新'), checkCallback: checking => {
+            const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
+            if (!view) return false; if (!checking) void view.refresh(); return true;
+        } });
         this.addCommand({ id: 'open-organic-mind-map', name: t('以 Organic 模式打开笔记'),
             checkCallback: checking => {
                 const file = this.app.workspace.getActiveFile();
@@ -73,12 +115,11 @@ export default class CanvasMindMapPlugin extends Plugin {
         attempt();
     }
 
-    async saveSettings(): Promise<void> { await this.saveData(this.settings); }
+    async saveSettings(): Promise<void> { await this.dataStore.save(); }
 
     private async openOrganic(file: TFile): Promise<void> {
         const leaf = this.app.workspace.getLeaf('tab');
-        await leaf.setViewState({ type: ORGANIC_VIEW, active: true });
-        if (leaf.view instanceof OrganicMindMapView) await leaf.view.loadSource(file);
+        await leaf.setViewState({ type: ORGANIC_VIEW, active: true, state: { file: file.path } });
     }
 
     refreshLanguage(): void {
@@ -91,6 +132,7 @@ class MindmapSettingTab extends PluginSettingTab {
     constructor(private owner: CanvasMindMapPlugin) { super(owner.app, owner); }
     display(): void {
         this.containerEl.empty();
-        renderMindmapSettings(this.containerEl, this.owner);
+        renderMindmapSettings(this.containerEl, this.owner, () => this.display());
+        renderOrganicSettings(this.containerEl, this.owner);
     }
 }

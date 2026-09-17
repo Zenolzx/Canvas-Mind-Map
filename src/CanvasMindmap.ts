@@ -130,6 +130,7 @@ export class CanvasMindmap {
         this.command('mindmap-template', t('思维导图：应用层级模板'), (canvas, node) => this.applyTemplate(canvas, node.id));
         this.command('mindmap-branch-style', t('应用分支样式（保留自定义）'), (canvas, node) => this.branchAppearance(canvas, node.id));
         this.command('mindmap-style', t('思维导图：设置当前节点外观'), (canvas, node) => this.styleDialog(canvas, node.id));
+        this.command('mindmap-style-restore', t('恢复层级模板'), (canvas, node) => this.restoreNodeTemplate(canvas, node.id));
         this.command('mindmap-focus', t('思维导图：聚焦当前分支'), (canvas, node) => this.focusBranch(canvas, node.id), false, true);
         this.command('mindmap-overview', t('思维导图：查看全貌'), (canvas, node) => this.overview(canvas, node.id), false, true);
         this.command('mindmap-search', t('思维导图：搜索标题'), (canvas, node) => this.search(canvas, node.id), false, true);
@@ -193,8 +194,8 @@ export class CanvasMindmap {
             entry.setTitle(title).setSection('canvas-mind-map').onClick(() => this.run(action)));
         const submenu = (title: string, build: (submenu: Menu) => void) => menu.addItem(entry => {
             const submenuItem = entry as SubmenuMenuItem;
-            if (typeof submenuItem.setSubmenu !== 'function') return;
             submenuItem.setTitle(title).setSection('canvas-mind-map');
+            if (typeof submenuItem.setSubmenu !== 'function') { submenuItem.setDisabled(true); build(menu); return; }
             build(submenuItem.setSubmenu());
         });
         const submenuItem = (submenu: Menu, title: string, action: () => void | Promise<void>) => submenu.addItem(entry =>
@@ -207,26 +208,28 @@ export class CanvasMindmap {
         item(t('返回思维导图中心'), () => this.center(canvas, node.id));
         item(t('聚焦当前分支'), () => this.focusBranch(canvas, node.id));
         if (this.reading.has(canvas)) item(t('退出分支聚焦'), () => this.exitFocus(canvas));
+        item(t('查看思维导图全貌'), () => this.overview(canvas, node.id));
+        item(t('搜索标题（包含折叠节点）…'), () => this.search(canvas, node.id));
         if (!canvas.readonly) {
-            item(t('展开下一级标题'), () => this.fold(canvas, node.id, true));
-            item(t('收起整个分支'), () => this.fold(canvas, node.id, false));
+            menu.addSeparator();
+            submenu(t('展开 / 折叠'), folding => {
+                submenuItem(folding, t('展开下一级标题'), () => this.fold(canvas, node.id, true));
+                submenuItem(folding, t('收起整个分支'), () => this.fold(canvas, node.id, false));
+                submenuItem(folding, t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
+            });
             submenu(t('布局'), layout => {
                 submenuItem(layout, t('重新排列整张思维导图'), () => this.relayout(canvas, node.id));
                 submenuItem(layout, t('切换思维导图布局…'), () => this.layoutDialog(canvas, node.id));
             });
+            submenu(t('外观'), appearance => {
+                submenuItem(appearance, t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
+                submenuItem(appearance, t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
+                submenuItem(appearance, t('应用分支样式（保留自定义）'), () => this.branchAppearance(canvas, node.id));
+                submenuItem(appearance, t('恢复层级模板'), () => this.restoreNodeTemplate(canvas, node.id));
+            });
+            menu.addSeparator();
+            item(t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
         }
-        submenu(t('选项'), options => {
-            submenuItem(options, t('查看思维导图全貌'), () => this.overview(canvas, node.id));
-            submenuItem(options, t('搜索标题（包含折叠节点）…'), () => this.search(canvas, node.id));
-            if (canvas.readonly) return;
-            options.addSeparator();
-            submenuItem(options, t('显示到第 N 层…'), () => this.depthDialog(canvas, node.id));
-            submenuItem(options, t('应用层级模板（保留单节点覆盖）'), () => this.applyTemplate(canvas, node.id));
-            submenuItem(options, t('应用分支样式（保留自定义）'), () => this.branchAppearance(canvas, node.id));
-            submenuItem(options, t('设置此节点外观…'), () => this.styleDialog(canvas, node.id));
-            options.addSeparator();
-            submenuItem(options, t('从原笔记刷新思维导图'), () => this.refresh(canvas, node.id));
-        });
     }
 
     private run(action: () => void | Promise<void>): void {
@@ -750,18 +753,22 @@ export class CanvasMindmap {
             }
             dialog.close();
         })).addButton(button => button.setButtonText(t('恢复层级模板')).onClick(() => {
-            const data = this.readData(canvas), current = data.nodes.find(item => item.id === id);
-            const currentState = current && meta(current);
-            if (current && currentState) {
-                currentState.overrides = {};
-                currentState.applied = { width: current.width, height: current.height, color: current.color ?? '' };
-                applyStyle(current, this.style(currentState.depth));
-                if (currentState.appearance === 'branch') applyBranchAppearance(data, currentState.rootId);
-                this.commit(canvas, data);
-            }
+            this.restoreNodeTemplate(canvas, id);
             dialog.close();
         }));
         dialog.open();
+    }
+
+    private restoreNodeTemplate(canvas: Canvas, id: string): void {
+        if (canvas.readonly) return;
+        const data = this.readData(canvas), current = data.nodes.find(item => item.id === id);
+        const currentState = current && meta(current);
+        if (!current || !currentState) return;
+        currentState.overrides = {};
+        currentState.applied = { width: current.width, height: current.height, color: current.color ?? '' };
+        applyStyle(current, this.style(currentState.depth));
+        if (currentState.appearance === 'branch') applyBranchAppearance(data, currentState.rootId);
+        this.commit(canvas, data);
     }
 
     private async refresh(canvas: Canvas, id: string): Promise<void> {
@@ -1105,13 +1112,13 @@ export function normalizeMindmapLevels(value: unknown): MindmapLevelStyle[] {
     });
 }
 
-export function renderMindmapSettings(container: HTMLElement, plugin: CanvasMindMapPlugin): void {
+export function renderMindmapSettings(container: HTMLElement, plugin: CanvasMindMapPlugin, rerender?: () => void): void {
     new Setting(container).setName(t('思维导图')).setHeading();
     new Setting(container).setName(t('语言')).setDesc(t('自动跟随 Obsidian；不支持的语言使用英语。'))
         .addDropdown(dropdown => dropdown.addOptions(languageOptions()).setValue(plugin.settings.language).onChange(async value => {
             plugin.settings.language = value === 'en' || value === 'zh-CN' ? value : 'auto';
             await plugin.saveSettings(); plugin.refreshLanguage();
-            container.empty(); renderMindmapSettings(container, plugin);
+            if (rerender) rerender(); else { container.empty(); renderMindmapSettings(container, plugin); }
             new Notice(t('语言已更新。重新加载插件后，命令面板中的名称也会更新。'));
         }));
     new Setting(container).setName(t('聚焦阅读')).setHeading();

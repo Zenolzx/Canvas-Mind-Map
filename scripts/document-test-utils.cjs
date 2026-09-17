@@ -1,0 +1,15 @@
+const assert = require('node:assert/strict');
+const esbuild = require('esbuild');
+const bundle = esbuild.buildSync({ entryPoints: ['src/document/index.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
+const compiled = { exports: {} };
+new Function('module', 'exports', 'require', bundle.outputFiles[0].text)(compiled, compiled.exports, require);
+const engine = compiled.exports;
+const parser = new engine.DocumentStructureParser();
+const service = new engine.DocumentStructureTransactionService(parser);
+const parse = text => parser.parse(text, { sourcePath: 'Article.md' });
+const section = (doc, title, occurrence = 0) => [...doc.sections.values()].filter(s => s.headingText === title)[occurrence];
+const titles = doc => doc.order.map(id => doc.sections.get(id).headingText);
+const body = (doc, title, occurrence = 0) => { const s = section(doc, title, occurrence); return doc.text.slice(s.body.start, s.body.end); };
+const apply = (doc, operation) => service.prepare(doc, operation).after;
+const error = (fn, code) => assert.throws(fn, e => e.code === code, code);
+module.exports = { assert, engine, parser, service, parse, section, titles, body, apply, error };
