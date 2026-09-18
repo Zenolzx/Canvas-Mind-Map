@@ -1,0 +1,36 @@
+const assert=require('node:assert/strict'),esbuild=require('esbuild');
+const bundle=esbuild.buildSync({stdin:{contents:`export * from './src/composer/ComposerModel';export * from './src/composer/ComposerTools';export * from './src/composer/ComposerStore';export * from './src/document';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false});
+const moduleOutput={exports:{}};new Function('module','exports','require',bundle.outputFiles[0].text)(moduleOutput,moduleOutput.exports,require);
+const {newDraft,newNode,entries,ComposerHistory,moveNodes,parkNodes,createParent,selectedRoots,exportMarkdown,normalizeDraft,ComposerStore,organizeSelection,deleteSelection,fromTemplate,COMPOSER_TEMPLATES,duplicateDraft,searchDraft,composerProjection,draftStatistics,outlineMarkdown,DocumentStructureParser}=moduleOutput.exports;
+const draft=newDraft(),a=newNode('A'),b=newNode('B'),c=newNode('C');a.body='Body A';b.metadata={source:'reference'};draft.root.children.push(a,b,c);
+const history=new ComposerHistory(draft);
+history.change(d=>createParent(d,[a.id,b.id],'Architecture'));let group=history.draft.root.children[0];assert.equal(group.title,'Architecture');assert.deepEqual(group.children.map(n=>n.title),['A','B']);assert.equal(group.children[1].metadata.source,'reference');
+history.undo();assert.deepEqual(history.draft.root.children.map(n=>n.title),['A','B','C']);history.redo();group=history.draft.root.children[0];
+assert.deepEqual(selectedRoots(history.draft,[group.id,a.id]).map(e=>e.node.id),[group.id]);
+const before=JSON.stringify(history.draft);assert.throws(()=>history.change(d=>moveNodes(d,[group.id,c.id],a.id,'child')),/itself/);assert.equal(JSON.stringify(history.draft),before);
+history.change(d=>parkNodes(d,[group.id,c.id]));assert.equal(history.draft.root.children.length,0);assert.equal(history.draft.unsorted[0].children[0].body,'Body A');
+history.change(d=>moveNodes(d,[group.id,c.id],d.root.id,'child'));assert.deepEqual(history.draft.root.children.map(n=>n.title),['Architecture','C']);assert.equal(history.draft.unsorted.length,0);
+history.change(d=>deleteSelection(d,[group.id,a.id],true));assert.deepEqual(history.draft.root.children.map(n=>n.title),['A','B','C']);
+history.change(d=>organizeSelection(d,[a.id,b.id],'down'));assert.deepEqual(history.draft.root.children.map(n=>n.title),['C','A','B']);
+history.change(d=>organizeSelection(d,[a.id,b.id],'demote'));assert.deepEqual(history.draft.root.children[0].children.map(n=>n.title),['A','B']);
+history.change(d=>organizeSelection(d,[a.id,b.id],'promote'));assert.deepEqual(history.draft.root.children.map(n=>n.title),['C','A','B']);
+const nonSiblings=JSON.stringify(history.draft);assert.throws(()=>history.change(d=>organizeSelection(d,[c.id,b.id],'up')),/consecutive/);assert.equal(JSON.stringify(history.draft),nonSiblings);
+const deep=newDraft();let parent=deep.root;for(let i=0;i<6;i++){const node=newNode('Level '+i);parent.children.push(node);parent=node;}
+const depthHistory=new ComposerHistory(deep);const original=JSON.stringify(deep);assert.throws(()=>depthHistory.change(d=>createParent(d,[parent.id],'H7')),/depth/);assert.equal(JSON.stringify(depthHistory.draft),original);
+const writing=newDraft();writing.frontmatter='status: draft';writing.root.body='Introduction';const idea=newNode('Maybe','idea'),task=newNode('Find evidence','todo');task.body='Use primary sources.';task.checked=true;idea.children.push(newNode('Details'));writing.root.children.push(idea,task);writing.unsorted=[newNode('Loose','idea')];
+assert.throws(()=>exportMarkdown(writing),/Unsorted/);assert.throws(()=>exportMarkdown(writing,{unsorted:'exclude'}),/idea nodes/);
+let exported=exportMarkdown(writing,{ideas:'headings',unsorted:'append'});assert.match(exported.text,/^---\nstatus: draft\n---\n\nIntroduction/);assert.match(exported.text,/# Maybe\n\n## Details/);assert.match(exported.text,/- \[x\] Find evidence\n\n  Use primary sources\./);assert.match(exported.text,/# Loose/);assert.equal(exported.omitted,false);
+const parsed=new DocumentStructureParser().parse(exported.text,{sourcePath:'Draft.md'});assert.deepEqual([...parsed.sections.values()].map(s=>s.heading.start),[...exported.offsets.values()].filter(n=>n>=0));
+exported=exportMarkdown(writing,{ideas:'bullets',unsorted:'append'});assert.match(exported.text,/- Maybe\n  - Details/);assert.equal(exported.offsets.has(idea.id),false);assert.equal(exported.omitted,false);
+exported=exportMarkdown(writing,{ideas:'exclude',unsorted:'exclude'});assert.equal(exported.omitted,true);assert.ok(!exported.text.includes('Maybe'));assert.ok(!exported.text.includes('Details'));assert.ok(!exported.text.includes('Loose'));
+const restored=normalizeDraft(JSON.parse(JSON.stringify(writing)));assert.equal(restored.root.children[0].type,'idea');assert.equal(restored.root.children[1].checked,true);assert.equal(restored.unsorted[0].type,'idea');assert.equal(restored.frontmatter,'status: draft');
+const store=new ComposerStore({[writing.draftId]:writing},async()=>{});assert.equal(store.data[writing.draftId].unsorted.length,1);
+const old=newDraft();delete old.unsorted;assert.doesNotThrow(()=>normalizeDraft(old));const unsupported={...old,root:{...old.root,type:'future'}};assert.throws(()=>normalizeDraft(unsupported),/Unsupported node type/);
+assert.deepEqual(searchDraft(writing,'primary','bodies'),[task.id]);assert.deepEqual(searchDraft(writing,'loose','titles'),[writing.unsorted[0].id]);
+writing.root.collapsed=true;idea.collapsed=true;writing.focusNode=idea.id;const folds=JSON.stringify(writing);let projection=composerProjection(writing);assert.ok(!projection.model.nodes.some(n=>n.id===task.id));assert.ok(projection.collapsed.has(idea.id));
+projection=composerProjection(writing,task.id);assert.ok(projection.model.nodes.some(n=>n.id===task.id));assert.ok(!projection.collapsed.has(writing.root.id));assert.equal(JSON.stringify(writing),folds);
+const stats=draftStatistics(writing);assert.equal(stats.ideas,2);assert.equal(stats.todos,1);assert.equal(stats.completed,1);assert.equal(stats.unsorted,1);assert.ok(stats.words>0);
+assert.match(outlineMarkdown(writing),/- \[x\] Find evidence/);assert.match(outlineMarkdown(writing),/- Unsorted Ideas\n  - Loose/);
+const copy=duplicateDraft(writing);assert.notEqual(copy.draftId,writing.draftId);assert.ok(entries(copy,true).every(e=>!entries(writing,true).some(original=>original.node.id===e.node.id)));assert.equal(copy.root.children[1].body,task.body);assert.equal(copy.frontmatter,writing.frontmatter);assert.notEqual(copy.focusNode,writing.focusNode);
+for(const key of Object.keys(COMPOSER_TEMPLATES)){const first=fromTemplate(key,'Projects'),second=fromTemplate(key);assert.notEqual(first.draftId,second.draftId);assert.equal(first.targetFolder,'Projects');assert.doesNotThrow(()=>exportMarkdown(first));}
+console.log('PASS Composer thinking/writing: multi-selection, atomic grouping and moves, H6 rollback, unsorted persistence, typed export policies, frontmatter offsets, todos, search/focus without fold mutation, templates, duplication, outline and statistics');

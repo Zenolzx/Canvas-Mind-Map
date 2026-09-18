@@ -208,3 +208,40 @@
 .cmm-organic-reader pre { overflow-x: auto; }
 .cmm-organic-reader .cmm-reader-child { white-space: normal; height: auto; text-align: left; color: var(--text-accent); background: transparent; box-shadow: none; padding: 4px 0; }
 .cmm-writing-split > [hidden], .cmm-writing-split.editor-hidden > .cmm-organic-reader { display: none; }
+.cmm-composer { display: flex; flex-direction: column; height: 100%; }
+.cmm-composer-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--background-modifier-border); }
+.cmm-composer-toolbar strong { font-size: 11px; letter-spacing: .12em; color: var(--text-muted); margin-right: auto; }
+.cmm-composer-split { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.cmm-composer-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; }
+.cmm-composer-stage > svg { display: block; touch-action: none; }
+.cmm-composer-body { display: none; flex-shrink: 0; min-width: 0; flex-direction: column; padding: 12px; gap: 12px; background: var(--background-primary); }
+.cmm-composer-body textarea { flex: 1; width: 100%; resize: none; border: 0; background: transparent; line-height: 1.6; }
+.cmm-composer-split.has-body .cmm-composer-body { display: flex; }
+.cmm-composer-divider { display: none; width: 5px; flex-shrink: 0; cursor: col-resize; background: var(--background-modifier-border); }
+.cmm-composer-split.has-body .cmm-composer-divider { display: block; }
+.cmm-composer-breadcrumb { display: flex; flex-wrap: wrap; gap: 4px; }
+.cmm-composer-breadcrumb button { font-size: 12px; height: auto; white-space: normal; }
+.cmm-composer-status { font-size: 12px; color: var(--text-muted); padding: 7px 12px; border-top: 1px solid var(--background-modifier-border); }
+.cmm-composer-title-input { position: absolute; z-index: 3; max-width: calc(100% - 24px); }
+.cmm-composer-drop { position: absolute; pointer-events: none; z-index: 4; white-space: pre-line; padding: 8px 12px; border: 1px solid var(--interactive-accent); border-radius: 6px; background: var(--background-primary); color: var(--text-normal); }
+.cmm-composer-drop.is-invalid { border-color: var(--text-error); color: var(--text-error); }
+.cmm-composer-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.cmm-composer-field[hidden] { display: none; }
+.cmm-composer-recovery { width: 100%; min-height: 240px; }
+.cmm-composer-draft-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; }
+.cmm-composer-search { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--background-modifier-border); }
+.cmm-composer-search[hidden], .cmm-composer-unsorted[hidden], .cmm-composer-markdown-preview[hidden] { display: none; }
+.cmm-composer-search input { flex: 1; min-width: 150px; }
+.cmm-composer-unsorted { width: 220px; flex-shrink: 0; overflow-y: auto; padding: 12px; border-right: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.cmm-composer-unsorted p { font-size: 12px; color: var(--text-muted); }
+.cmm-composer-unsorted > button { margin: 4px 4px 8px 0; }
+.cmm-composer-unsorted-node { margin-top: 6px; border: 1px solid transparent; border-radius: 5px; }
+.cmm-composer-unsorted-node button { white-space: normal; text-align: left; width: 100%; height: auto; padding: 8px; }
+.cmm-composer-unsorted-node.is-selected { border-color: var(--interactive-accent); }
+.cmm-composer-unsorted-node.is-match { background: var(--text-highlight-bg); }
+.cmm-composer .is-multiselected .cmm-organic-hitbox { stroke: var(--interactive-accent); stroke-width: 2.5px; }
+.cmm-composer .is-idea .cmm-organic-hitbox { stroke-dasharray: 5 4; }
+.cmm-composer-type { display: flex; gap: 8px; }
+.cmm-composer-markdown-preview { width: 100%; min-height: 180px; max-height: 35vh; font-family: var(--font-monospace); font-size: 12px; white-space: pre; }
+.cmm-composer-template { display: block; width: 100%; margin: 8px 0; text-align: left; }
+.cmm-composer-draft-row { flex-wrap: wrap; }

@@ -17,7 +17,7 @@ export class OrganicMindMapRenderer {
     private actions?: Parameters<OrganicMindMapRenderer['render']>[2];
     close(): void { this.animation.cancel(); }
     render(container: SVGGElement, result: OrganicLayoutResult, actions: {
-        navigate: (id: string) => void; toggle: (id: string) => void;
+        navigate: (id: string, event?: MouseEvent | KeyboardEvent) => void; toggle: (id: string) => void;
         toggleLabel: (collapsed: boolean) => string;
         contextMenu?: (id: string, event: MouseEvent) => void;
         matches?: ReadonlySet<string>; currentMatch?: string; selected?: string | null;
@@ -37,7 +37,7 @@ export class OrganicMindMapRenderer {
                 const toggle = target.closest('[role="button"]');
                 if (event.type === 'keydown' && (event as KeyboardEvent).key !== 'Enter' && !(toggle && (event as KeyboardEvent).key === ' ')) return;
                 event.preventDefault(); event.stopPropagation();
-                if (toggle) this.actions?.toggle(id); else if (target.closest('[role="link"]')) this.actions?.navigate(id);
+                if (toggle) this.actions?.toggle(id); else if (target.closest('[role="link"]')) this.actions?.navigate(id, event);
             };
             container.addEventListener('click', invoke); container.addEventListener('keydown', invoke);
             container.addEventListener('contextmenu', event => {

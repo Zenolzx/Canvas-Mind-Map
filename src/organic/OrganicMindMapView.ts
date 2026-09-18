@@ -79,7 +79,7 @@ export class OrganicMindMapView extends ItemView {
     getState(): Record<string, unknown> { return { viewport: this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600), file: this.sourcePath, writing: this.isWriting, splitRatio: this.splitRatio,
         editorVisible: this.editorVisible, readerVisible: this.readerVisible, writingState: this.writing ? captureWritingView(this.writing.document, this.state,
             this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) : this.pendingWritingState }; }
-    async setState(state: { file?: string; writing?: boolean; splitRatio?: number; editorVisible?: boolean; readerVisible?: boolean; viewport?: SavedOrganicState['viewport']; writingState?: unknown }, result: { history: boolean }): Promise<void> {
+    async setState(state: { file?: string; writing?: boolean; splitRatio?: number; editorVisible?: boolean; readerVisible?: boolean; viewport?: SavedOrganicState['viewport']; writingState?: unknown; composerLayout?: SavedOrganicState['layout'] }, result: { history: boolean }): Promise<void> {
         if (Number.isFinite(state.splitRatio)) this.splitRatio = Math.max(.25, Math.min(.8, state.splitRatio!));
         this.editorVisible = state.editorVisible !== false;
         if (typeof state.readerVisible === 'boolean') this.readerVisible = state.readerVisible;
@@ -100,6 +100,11 @@ export class OrganicMindMapView extends ItemView {
             await this.toggleWriting();
         }
         this.requestedWritingMode = undefined;
+        if (state.composerLayout && ['organic-horizontal', 'organic-radial', 'compact-organic'].includes(state.composerLayout)) {
+            this.state.layout = state.composerLayout;
+            this.layoutKey = '';
+            this.draw();
+        }
         if (Number.isFinite(state.splitRatio)) this.splitRatio = Math.max(.25, Math.min(.8, state.splitRatio!));
         if (typeof state.readerVisible === 'boolean') this.readerVisible = state.readerVisible;
         this.applySplit();
@@ -109,6 +114,7 @@ export class OrganicMindMapView extends ItemView {
             this.scale = viewport.zoom;
             this.viewport.center(viewport.center, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform();
         }
+        if (state.composerLayout) this.remember();
     }
     sourceRenamed(oldPath: string, path: string): void {
         if (this.sourcePath !== oldPath && !this.sourcePath?.startsWith(oldPath + '/')) return;

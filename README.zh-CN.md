@@ -6,22 +6,27 @@
 
 # Canvas Mind Map
 
-**通过思维导图阅读、组织和编辑 Markdown 笔记。**
+**先用脑图组织想法，再生成 Markdown，继续写作。**
 
-Canvas Mind Map 是一个 Obsidian 插件，提供两种独立的渲染模式：Native Canvas 保留原生卡片编辑体验；Organic Mind Map 使用独立 SVG 视图，以文字和曲线分支阅读、编辑 Markdown 文档。
+Canvas Mind Map 提供三个独立工作空间：**Native Canvas** 使用原生卡片，**Organic** 阅读和编辑已有 Markdown，**Composer** 从空白脑图创建新文档。Organic 和 Composer 复用曲线分支渲染与布局，但各自的数据源和保存方式不同。
 
 **已上架 Obsidian 第三方插件市场。** [打开插件页面](https://obsidian.md/plugins?id=canvas-mind-map) · [下载 Release](https://github.com/Zenolzx/Canvas-Mind-Map/releases)。
 
-本 README 介绍当前源码的功能，包括 Edit / 思维导图写作模式；已发布安装包的功能范围以对应的 [Release 说明](https://github.com/Zenolzx/Canvas-Mind-Map/releases)为准。
+本 README 介绍当前源码的功能，包括 Composer 思考与写作工具（路线图 v1.1 / v1.2）；已发布安装包的功能范围以对应的 [Release 说明](https://github.com/Zenolzx/Canvas-Mind-Map/releases)为准。
 
-## 渲染模式
+## 选择 Mode
 
-| 模式 | 用途 | 入口 |
-| --- | --- | --- |
-| Native Canvas | 原生 nodes / edges、七种布局、自由移动与现有 Canvas 交互 | Canvas 来源卡片上的「生成可折叠思维导图」 |
-| Organic Mind Map | 阅读标题结构、搜索与导出；切换 **Edit** 直接编辑 Markdown 标题与章节正文 | Markdown 文件右键或命令面板中的「以 Organic 模式打开笔记」 |
+| 模式 | 数据源与保存 | 主要用途 | 入口 |
+| --- | --- | --- | --- |
+| Native Canvas | 原生 Canvas 节点和连线 | 七种布局、自由移动卡片、保留 Canvas 交互 | Canvas 笔记卡片或文本卡片上的「生成可折叠思维导图」 |
+| Organic | 已有 `.md` 文件；**Edit** 直接写回该文件 | **View** 阅读和导航；**Edit** 修改标题与章节直属正文 | Markdown 文件右键 → **以 Organic 模式打开笔记**，或同名命令 |
+| Composer | 插件 Draft；点击 **Create Note** 才创建 `.md` | 从空白或模板开始，收集想法、整理结构、填写正文 | Ribbon / 命令 **New Mind Map Document**；文件夹右键 **New Mind Map Document here** |
 
-想直接写笔记，从下方的 **Edit / 思维导图写作模式** 开始；想生成可自由移动的 Canvas 卡片，参见 **Native Canvas 快速开始**。
+从零写新文档使用下方的 **Composer**；修改已有笔记使用 **Organic Edit**；制作可移动卡片使用 **Native Canvas 快速开始**。**View / Edit** 是 Organic 内部状态；Native 的「仅标题 / 正文」控制卡片内容，不是新的顶层 Mode。
+
+```text
+New Mind Map Document → Composer 草稿 → Create Note → Organic Edit ⇄ View
+```
 
 ### Organic 阅读与导航
 
@@ -36,6 +41,70 @@ Organic 在原笔记变化后自动刷新（500ms 防抖），保留可可靠匹
 布局下拉框提供 **Organic Radial / Organic Horizontal / Compact Organic**。展开与折叠动画遵守系统 reduced motion 设置。「导出 → SVG / PNG」导出当前可见结构，保留 Focus 与折叠范围，保存到原笔记所在目录，同名文件自动加编号。PNG 默认 2x，设置可选 1x/2x/3x；超过浏览器画布尺寸限制时会提示降低倍率或使用 SVG。
 
 折叠、缩放、视角中心、Focus、Reading 位置、选择与布局按原笔记路径保存到插件数据。文件重命名和移动会迁移状态，删除文件会清理状态。多个标签页独立交互，以最近用户实际操作的状态为准。设置包含自动刷新、记住/重置状态、默认布局、动画/时长和 PNG 倍率。**View** 用于浏览，**Edit** 将修改写回原 Markdown，并提供独立的编辑历史。
+
+## Composer：从脑图到新文档
+
+### 开始构思与写作
+
+1. 点击 Ribbon 或命令面板中的 **New Mind Map Document**。文件夹右键的 **New Mind Map Document here** 会记住该目录，作为首次创建笔记时的默认位置。
+2. 双击中心节点 **Untitled** 或按 F2 改名。它表示文档名称，不会立即创建文件，也不默认成为 Markdown H1。
+3. Enter 新建章节。输入标题后，Enter 确认并开始下一个同级节点，Tab 确认并开始子节点，Esc 取消当前未完成节点。F2 修改已有节点时，Enter 只确认改名。
+4. 选中节点，在右侧填写**直属正文**，不包含后代正文。中心节点的正文是文档前言。**Body: auto / show / hide** 控制面板显示，拖动分隔线调整宽度。
+5. 点击 **Create Note**，检查导出选项和 Markdown 预览，选择文件名与目录。创建成功后，当前 Tab 进入 **Organic Edit**。
+
+Root 名称只提供文件名建议，两者可以分别修改。**Document name only** 将一级子节点导出为 H1；**Use root as H1** 将 Root 导出为 H1，子节点从 H2 开始。切换 Root 行为、拖动和缩进都会检查整个子树，阻止超过 H6。章节标题应在脑图中创建，不要写入 Heading 节点的正文。
+
+### 整理想法
+
+- **Ctrl/Cmd+单击** 添加或移除选择；**Shift+单击** 选择可见范围。正文编辑针对当前主选中节点；类型修改作用于所有选中的非 Root 节点。
+- 右键 → **Create → Create parent from selection** 为同一父节点下的选中节点创建共同父节点，保留顺序、正文、后代和 metadata。
+- 拖动一个或多个选中分支，使用 **Before / Make child / After** 预览决定位置。形成环或超深的落点不可提交。键盘提升、降级、排序要求选择连续的同级节点；批量删除可删除整个分支或保留子节点。一次批量操作对应一次撤销。
+- 打开 **Unsorted Ideas**，通过 **Add idea** 收集还没确定位置的想法。可点击 **Move selection here**、在抽屉与脑图之间拖动，或使用 **Structure → Move to document root / Move to Unsorted Ideas**。
+- 正文面板或节点菜单可切换 **Heading / Idea / Todo**。Idea 使用 `?` 前缀和虚线外框；Todo 使用复选框标识，可点击 **Mark complete / incomplete** 标记完成状态。
+
+### 搜索与聚焦
+
+**Search** 或脑图获得焦点时的 Ctrl/Cmd+F 支持 **Titles / Bodies / Everything**，包含折叠后代和待整理区。Enter / Shift+Enter 切换结果，Esc 关闭搜索。**Focus** 只显示当前分支及祖先路径，**Show overview** 恢复全图。搜索可以临时显示 Focus 外的结果，不修改已保存的折叠状态。节点菜单还提供 **Expand one level / Expand branch / Collapse branch / Show to level…**。
+
+### 写作工具
+
+命令 **New Composer from template** 或 **⋯ → New from template** 提供 Blank、Essay、Project Plan、Meeting Notes、Research Notes、Course Notes。每次创建独立 Draft。**⋯ → Duplicate draft** 复制正文、节点类型、属性和待整理想法，可用来复用自己的文档结构。
+
+**⋯ → Document properties** 编辑 YAML Frontmatter，不包含 `---` 分隔线；必须是有效的 YAML mapping，导出时放在前言之前。**⋯ → Copy outline** 复制 Markdown 列表大纲，包含 Todo 复选框和 Unsorted Ideas 分组。状态栏显示章节、Idea、Todo 完成数、待整理节点、字词统计及草稿保存状态。
+
+### 导出与保存
+
+**Create Note** 验证结构和文件名，选择 Vault 中已有目录，不覆盖同名文件。导出为空时需要确认。**Preview Markdown** 显示本次创建实际使用的 Markdown 内容。
+
+| 内容 | 导出规则 |
+| --- | --- |
+| Heading | 标题、直属正文、子节点 |
+| Idea | 必须选择 **Convert to headings / Convert to bullet items / Exclude idea branches**；也可 **Review individually**，逐个修改节点类型后再创建 |
+| Todo | `- [ ]` 或 `- [x]` 列表项 |
+| 列表 / Todo 分支 | 后代全部作为嵌套列表，包括原来为 Heading 类型的后代；正文保留在相应列表项内 |
+| Unsorted Ideas | 必须选择 **Append to document** 或 **Exclude and keep draft** |
+
+排除 Idea 时排除其整个分支。只要有内容被排除，创建笔记后仍保留完整 Draft；没有排除内容时，只有 Organic Edit 初始化成功后才删除 Draft。选中和折叠状态按生成位置传递；导出为列表的节点会定位到最近的已导出标题，或文档前言。
+
+**Draft saved** 只表示插件草稿已保存，不代表存在 Markdown 文件。修改后 500ms 自动保存，可关闭后恢复。**Restore Composer Draft** 提供打开、Rename、Duplicate、Delete 和恢复数据导入；删除已打开草稿时，先关闭对应 Tab，或在该 Tab 使用 **Discard draft**。保存失败会提供重试与可复制的恢复数据。撤销历史属于当前编辑 Session，重新打开后不恢复旧历史。
+
+### Composer 快捷键
+
+| 操作 | 行为 |
+| --- | --- |
+| F2 / 双击 | 重命名文档或节点 |
+| Enter / Tab | 新建同级 / 子节点；输入新节点时支持连续创建 |
+| Shift+Tab / Alt+← | 提升 |
+| Alt+→ | 变成前一同级节点的子节点 |
+| Alt+↑ / Alt+↓ | 同级排序 |
+| 方向键 | 导航可见节点、父节点或首个子节点 |
+| Delete | 删除选择；分支可选择保留子节点 |
+| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z | 撤销 / 重做，覆盖正文和批量修改 |
+| Ctrl/Cmd+Enter | 聚焦直属正文；Esc 返回脑图 |
+| Ctrl/Cmd+F | 脑图聚焦时打开 Composer 搜索 |
+| 拖背景 / 滚轮 / `+` / `-` / `0` | 平移 / 缩放 / 缩放 / 适应画布 |
+
+布局支持 Horizontal / Radial / Compact，Composer 独立记住默认布局和面板宽度。当前仍以文档树为核心；路线图 v2 中的非树关系、共享想法与自由知识网络尚未实现。
 
 ## Edit / 思维导图写作模式
 
@@ -168,6 +237,8 @@ npm run build
 ```
 
 生产构建会检查 TypeScript 并生成 `main.js`。将生成的文件与 `manifest.json`、`styles.css` 一起复制到插件目录。开发时可运行 `npm run dev` 持续监听源码变化，按 `Ctrl+C` 结束监听。
+
+`npm test` 运行 Native、Organic 和 Composer 模型回归。`npm run test:composer-browser` 使用无头浏览器与模拟 Obsidian 接口，验证 Composer 交互及转入 Organic 的流程。其他本地环境可通过 `CMM_PLAYWRIGHT` 指定 Playwright 模块路径、`CMM_BROWSER` 指定 Chromium / Edge 可执行文件。这些测试不能替代真实 Vault 验收。
 
 ## 反馈
 

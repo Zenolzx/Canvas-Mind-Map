@@ -1,4 +1,6 @@
-import { Menu, moment, Notice, Plugin, PluginSettingTab, TFile } from 'obsidian';
+import { Menu, moment, Notice, Plugin, PluginSettingTab, TFile, TFolder } from 'obsidian';
+import { ComposerStore } from './src/composer/ComposerStore';
+import { COMPOSER_VIEW, ComposerView, showDrafts, showTemplates } from './src/composer/ComposerView';
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
@@ -14,6 +16,7 @@ export default class CanvasMindMapPlugin extends Plugin {
     settings: MindmapSettings;
     mindmap: CanvasMindmap;
     organicStates: OrganicStateStore;
+    composerDrafts: ComposerStore;
     private dataStore: PluginDataStore;
 
     async onload(): Promise<void> {
@@ -27,7 +30,8 @@ export default class CanvasMindMapPlugin extends Plugin {
             language: saved.language === 'en' || saved.language === 'zh-CN' ? saved.language : 'auto',
             lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'horizontal',
         };
-        this.dataStore = new PluginDataStore(() => ({ ...saved, ...this.settings, organicState: this.organicStates.data }), data => this.saveData(data));
+        this.dataStore = new PluginDataStore(() => ({ ...saved, ...this.settings, organicState: this.organicStates.data, composerDrafts: this.composerDrafts.persisted, composerPreferences: this.composerDrafts.preferences }), data => this.saveData(data));
+        this.composerDrafts = new ComposerStore(saved.composerDrafts, () => this.dataStore.save(), saved.composerPreferences);
         this.organicStates = new OrganicStateStore(saved.organicState, () => this.dataStore.save(), () => this.settings.organic.rememberState,
             error => { console.error('Organic state save failed', error); new Notice(t('Organic 状态保存失败，请查看控制台。')); });
         this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
@@ -46,6 +50,29 @@ export default class CanvasMindMapPlugin extends Plugin {
         this.register(() => documentHost.dispose());
         this.registerEditorExtension(documentHost.extension);
         this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost));
+        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts));
+        const openComposer = async (draftId?: string, targetFolder?: string) => {
+            const existing = draftId && this.app.workspace.getLeavesOfType(COMPOSER_VIEW).find(leaf => leaf.view.getState().draftId === draftId);
+            if (existing) { await this.app.workspace.revealLeaf(existing); return; }
+            const leaf = this.app.workspace.getLeaf('tab');
+            await leaf.setViewState({ type: COMPOSER_VIEW, active: true, state: { draftId, targetFolder } });
+            (leaf.view as ComposerView).focusMap();
+        };
+        this.addRibbonIcon('file-plus-2', 'New Mind Map Document', () => { void openComposer(); });
+        this.addCommand({ id: 'new-mind-map-document', name: 'New Mind Map Document', callback: () => { void openComposer(); } });
+        this.addCommand({ id: 'restore-composer-draft', name: 'Restore Composer Draft', callback: () => showDrafts(this.app, this.composerDrafts, id => openComposer(id)) });
+        this.addCommand({ id: 'composer-from-template', name: 'New Composer from template', callback: () => showTemplates(this.app, draft => {
+            this.composerDrafts.put({ ...draft, ...this.composerDrafts.preferences });
+            void this.composerDrafts.flush().then(() => openComposer(draft.draftId)).catch(error => new Notice(String(error)));
+        }) });
+        this.addCommand({ id: 'search-composer', name: 'Composer: Search', checkCallback: checking => {
+            const view = this.app.workspace.getActiveViewOfType(ComposerView); if (!view) return false;
+            if (!checking) view.openSearch(); return true;
+        } });
+        this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
+            if (file instanceof TFolder) menu.addItem(item => item.setTitle('New Mind Map Document here').setIcon('file-plus-2').onClick(() => openComposer(undefined, file.path)));
+        }));
+        this.register(() => { void this.composerDrafts.flush().catch(console.error); });
         this.addCommand({ id: 'toggle-mind-map-writing', name: 'Organic: Toggle Mind Map Writing', checkCallback: checking => {
             const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
             if (!view) return false; if (!checking) void view.toggleWriting(); return true;

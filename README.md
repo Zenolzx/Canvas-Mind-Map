@@ -6,22 +6,27 @@
 
 # Canvas Mind Map
 
-**Explore, organize, and edit Markdown notes through mind maps.**
+**Think in a mind map, create a Markdown note, and keep writing.**
 
-Canvas Mind Map offers two independent rendering modes: Native Canvas for native card editing, and Organic Mind Map for reading and editing Markdown through text and curved, colored branches.
+Canvas Mind Map offers three workspaces: **Native Canvas** for native cards, **Organic** for existing Markdown, and **Composer** for creating a new document from a blank mind map. Organic and Composer share the curved-branch renderer and layouts, but save to different sources.
 
 Available in the **Obsidian Community Plugins directory**. [Open the plugin page](https://obsidian.md/plugins?id=canvas-mind-map) · [Download releases](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
 
-This README describes the current source, including Edit / Mind Map Writing. Features available in a packaged version are listed in its [release notes](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
+This README describes the current source, including Composer's thinking and writing tools (v1.1 / v1.2 roadmap). Features available in a packaged version are listed in its [release notes](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
 
-## Rendering modes
+## Choose a mode
 
-| Mode | Purpose | Entry point |
-| --- | --- | --- |
-| Native Canvas | Real nodes and edges, seven layouts, manual movement and existing Canvas interaction | Generate a mind map from a Canvas source card |
-| Organic Mind Map | Read heading structure, search and export; switch to **Edit** to write headings and section bodies directly to Markdown | Right-click a Markdown file or run **Open note in Organic mode** |
+| Mode | Source and saving | Purpose | Entry point |
+| --- | --- | --- | --- |
+| Native Canvas | Native Canvas nodes and edges | Seven layouts, movable cards and native Canvas interaction | Generate a mind map from a Canvas note/text card |
+| Organic | An existing `.md` file; **Edit** writes to that file | **View** reads/navigates; **Edit** changes headings and direct section bodies | Right-click a Markdown file → **Open note in Organic mode**, or run that command |
+| Composer | A plugin draft; no `.md` file until **Create Note** | Start blank or from a template, collect ideas, organize and write | Ribbon / command **New Mind Map Document**, or folder menu **New Mind Map Document here** |
 
-For writing, start with [Edit / Mind Map Writing](#edit--mind-map-writing). For movable Canvas cards, follow [Native Canvas Quick Start](#native-canvas-quick-start).
+For a new document, start with [Composer](#composer--new-mind-map-document). For an existing note, use [Organic Edit](#edit--mind-map-writing). For movable cards, follow [Native Canvas Quick Start](#native-canvas-quick-start). **View / Edit** are states inside Organic; Native's **title / body** choices control card content, not the workspace mode.
+
+```text
+New Mind Map Document → Composer draft → Create Note → Organic Edit ⇄ View
+```
 
 ### Organic reading and navigation
 
@@ -36,6 +41,72 @@ Use **Search headings** or Ctrl/Cmd+F inside Organic to search all headings, inc
 The layout selector offers **Organic Radial**, **Organic Horizontal**, and **Compact Organic**. Fold animations respect reduced motion. **Export → SVG / PNG** saves the current visible structure (including Focus and folding) next to the source note, with numbered filenames to avoid overwriting. PNG defaults to 2x; 1x/2x/3x are available in settings. Very large PNG dimensions are rejected with a suggestion to reduce scale or use SVG.
 
 Folding, zoom, viewport center, Focus, Reading position, selection and layout are stored in plugin data by source path. Rename/move migrates saved state; deletion removes it. Multiple tabs interact independently; the most recent user interaction owns the saved state. Settings provide automatic refresh, remembered state/reset, default layout, animation/duration and PNG scale. **View** explores the note; **Edit** writes changes to the source Markdown and provides its own editing history.
+
+## Composer / New Mind Map Document
+
+### Start and write
+
+1. Use **New Mind Map Document** in the ribbon or command palette. A folder's **New Mind Map Document here** action remembers that folder for the first note creation.
+2. Rename **Untitled** with F2 / double-click. This is the document name, not automatically a Markdown H1 or a file.
+3. Press Enter to add a section, type its title, then Enter to start the next sibling or Tab to start a child. Esc cancels the unfinished node. Enter after F2 confirms the rename without adding another node.
+4. Select a node and write its **direct body** in the right panel. The root body is the document introduction. **Body: auto / show / hide** controls visibility; drag the divider to resize it.
+5. Choose **Create Note**, review the export options and Markdown preview, then create the file. The current tab becomes **Organic Edit**.
+
+The root suggests a filename, which can be changed independently in the create dialog. **Document name only** exports children as H1; **Use root as H1** exports the root as H1 and children as H2. Structural operations and root-behavior changes validate the complete subtree against H6. Create section headings as map nodes, rather than placing headings in a heading node's body.
+
+### Organize ideas
+
+- **Ctrl/Cmd+click** adds/removes a selection; **Shift+click** selects a visible range. Body editing applies to the primary selected node. Type changes apply to all selected non-root nodes.
+- Right-click → **Create → Create parent from selection** groups sibling nodes under a new heading. The nodes keep their order, bodies, metadata and descendants.
+- Drag one or several selected branches to **Before / Make child / After**. The preview rejects cycles and excessive depth before committing. Keyboard promote/demote/reorder works on consecutive selected siblings; batch deletion can remove branches or retain children. Each operation is undoable as a single action.
+- Open **Unsorted Ideas** to capture ideas outside the document tree. Use **Add idea**, **Move selection here**, drag between the drawer and map, or use **Structure → Move to document root / Move to Unsorted Ideas**.
+- Choose **Heading / Idea / Todo** in the body panel or node menu. Idea nodes have a `?` prefix and dashed outline; Todo nodes have a checkbox indicator and **Mark complete / incomplete** action.
+
+### Find and focus
+
+**Search** or Ctrl/Cmd+F searches **Titles**, **Bodies**, or **Everything**, including folded and unsorted nodes. Enter / Shift+Enter cycles results; Esc closes search. **Focus** shows the selected branch and its ancestor path; **Show overview** restores the document. Search can temporarily show a result outside Focus without changing saved fold flags. The node menu also provides **Expand one level**, **Expand branch**, **Collapse branch**, and **Show to level…**.
+
+### Writing tools
+
+Use **New Composer from template** in the command palette, or **⋯ → New from template**, for Blank, Essay, Project Plan, Meeting Notes, Research Notes or Course Notes. Each opens a new draft. **⋯ → Duplicate draft** makes an independent copy, including bodies, types, properties and unsorted ideas.
+
+**⋯ → Document properties** edits YAML frontmatter without `---` delimiters. It must be a YAML mapping; valid properties are placed before the introduction. **⋯ → Copy outline** copies a Markdown bullet outline, including Todo checkboxes and an Unsorted Ideas group. The status line shows section, idea, Todo, unsorted-node and word/character counts plus draft save status.
+
+### Export and saving
+
+**Create Note** checks structure and filenames, uses an existing vault folder, and never overwrites another note. The root-name suggestion and filename can differ. An empty export requires confirmation. **Preview Markdown** shows the same generated text used for creation.
+
+| Content | Export behavior |
+| --- | --- |
+| Heading | Markdown heading followed by its direct body and children |
+| Idea | Explicitly choose **Convert to headings**, **Convert to bullet items**, **Exclude idea branches**, or **Review individually** to change node types first |
+| Todo | `- [ ]` or `- [x]` list item |
+| Bullet / Todo branch | Descendants become nested list items, including nodes previously typed as headings; bodies remain inside their list items |
+| Unsorted Ideas | Explicitly choose **Append to document** or **Exclude and keep draft** |
+
+Excluding an Idea excludes its whole branch. Whenever any content is excluded, the complete draft remains available after note creation. Otherwise it is removed only after Organic Edit initializes successfully. Selection and folding transfer by generated source positions; nodes exported as list items select their nearest exported heading, or the document introduction.
+
+**Draft saved** means plugin data is saved, not that a Markdown file exists. Drafts autosave after 500ms and survive tab closure. **Restore Composer Draft** reopens drafts and provides Rename / Duplicate / Delete plus recovery-data import. Close an open draft before deleting it from that list, or use its **Discard draft** menu. Save failures offer retry and copyable recovery data. Undo history belongs to the current editing session and is not restored after reopening.
+
+### Composer shortcuts
+
+| Key / gesture | Action |
+| --- | --- |
+| F2 / double-click | Rename the document or node |
+| Enter / Tab | Add sibling / child; continue creating while typing a new node |
+| Shift+Tab / Alt+← | Promote |
+| Alt+→ | Demote below the preceding sibling |
+| Alt+↑ / Alt+↓ | Reorder siblings |
+| Arrow keys | Navigate visible nodes / parent / first child |
+| Delete | Delete selection; branches offer keep-children choice |
+| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z | Undo / redo, including body and batch changes |
+| Ctrl/Cmd+Enter | Focus direct-body editor; Esc returns to the map |
+| Ctrl/Cmd+F | Open Composer search while the map has focus |
+| Background drag / wheel / `+` / `-` / `0` | Pan / zoom / zoom / fit |
+
+Horizontal, Radial and Compact reuse Organic's layout and renderer. Composer remembers its layout and panel width defaults independently of Organic.
+
+The current Composer remains a document tree. The proposed v2 features—non-tree relationships, shared ideas and free-form knowledge mapping—are not implemented.
 
 ## Edit / Mind Map Writing
 
@@ -160,6 +231,8 @@ npm run build
 ```
 
 The production build checks TypeScript and generates `main.js`. Copy it with `manifest.json` and `styles.css` into your vault's plugin directory. For development, `npm run dev` rebuilds on source changes; stop it with Ctrl+C.
+
+Run `npm test` for the Native, Organic and Composer model regressions. `npm run test:composer-browser` exercises Composer interactions and the Organic handoff in a headless browser with simulated Obsidian APIs. Set `CMM_PLAYWRIGHT` to a Playwright module path and `CMM_BROWSER` to a Chromium/Edge executable when using a different local test setup. These tests do not replace checking a real vault.
 
 ## Feedback
 
