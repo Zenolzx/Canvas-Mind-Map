@@ -19,7 +19,7 @@ export class OrganicAnimationController {
             .filter(el => !nextIds.has(el.getAttribute('data-child-id')!)).map(el => el.cloneNode(true) as SVGPathElement);
         paint();
         for (const el of [...exits, ...exitPaths]) {
-            el.setAttribute('aria-hidden', 'true'); el.style.pointerEvents = 'none';
+            el.setAttribute('aria-hidden', 'true'); el.classList.add('cmm-organic-exit-ghost');
             el.querySelectorAll('[tabindex]').forEach(child => child.removeAttribute('tabindex'));
             container.append(el);
         }
@@ -40,7 +40,7 @@ export class OrganicAnimationController {
         const mix = (a: Point, b: Point, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
         const nodes = Array.from(container.querySelectorAll<SVGGElement>('[data-node-id]')).map(el => {
             const id = el.getAttribute('data-node-id')!, a = oldNodes.get(id), b = nextNodes.get(id);
-            return { el, a: a ?? anchor(id, true), b: b ?? anchor(id, false), entering: !a, exiting: !b, opacity: el.style.opacity || '1' };
+            return { el, a: a ?? anchor(id, true), b: b ?? anchor(id, false), entering: !a, exiting: !b, opacity: win.getComputedStyle(el).opacity || '1' };
         });
         const paths = Array.from(container.querySelectorAll<SVGPathElement>('[data-child-id]')).map(el => {
             const id = el.getAttribute('data-child-id')!, a = oldEdges.get(id), b = nextEdges.get(id);
@@ -50,12 +50,12 @@ export class OrganicAnimationController {
         const frame = (t: number) => {
             for (const n of nodes) {
                 const p = mix(n.a, n.b, t); n.el.setAttribute('transform', `translate(${p.x} ${p.y})`);
-                n.el.style.opacity = String(Number(n.opacity) * (n.entering ? t : n.exiting ? 1 - t : 1));
+                n.el.setCssStyles({ opacity: String(Number(n.opacity) * (n.entering ? t : n.exiting ? 1 - t : 1)) });
             }
             for (const p of paths) {
                 p.el.setAttribute('d', branchPath({ ...next.branches[0], start: mix(p.a.start, p.b.start, t),
                     control1: mix(p.a.control1, p.b.control1, t), control2: mix(p.a.control2, p.b.control2, t), end: mix(p.a.end, p.b.end, t) }));
-                p.el.style.opacity = String(p.entering ? t : p.exiting ? 1 - t : 1);
+                p.el.setCssStyles({ opacity: String(p.entering ? t : p.exiting ? 1 - t : 1) });
             }
         };
         let handle = 0; const started = win.performance.now();

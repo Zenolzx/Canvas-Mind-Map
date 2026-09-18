@@ -245,3 +245,11 @@
 .cmm-composer-markdown-preview { width: 100%; min-height: 180px; max-height: 35vh; font-family: var(--font-monospace); font-size: 12px; white-space: pre; }
 .cmm-composer-template { display: block; width: 100%; margin: 8px 0; text-align: left; }
 .cmm-composer-draft-row { flex-wrap: wrap; }
+
+/* Organic transition ghosts and writing focus state. */
+.cmm-organic-exit-ghost { pointer-events: none; }
+.cmm-organic-node.cmm-organic-node-dimmed { opacity: 0.22; }
+
+/* Draft dialogs retain their full-width, fixed-height copy areas. */
+textarea.cmm-writing-draft-recovery { width: 100%; height: 300px; }
+textarea.cmm-writing-draft-discard { width: 100%; height: 220px; }

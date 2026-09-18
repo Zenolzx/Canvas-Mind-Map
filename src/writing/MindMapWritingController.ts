@@ -173,8 +173,8 @@ export class MindMapWritingController {
         this.input = input;
         input.value = kind === 'rename' ? this.document.sections.get(id)?.headingText ?? '' : '';
         input.placeholder = '输入标题';
-        input.style.left = `${Math.max(8, Math.min((rect?.left ?? parent.left + 20) - parent.left, parent.width - 250))}px`;
-        input.style.top = `${Math.max(8, (rect?.top ?? parent.top + 30) - parent.top + (kind === 'rename' ? 0 : 36))}px`;
+        input.setCssStyles({ left: `${Math.max(8, Math.min((rect?.left ?? parent.left + 20) - parent.left, parent.width - 250))}px` });
+        input.setCssStyles({ top: `${Math.max(8, (rect?.top ?? parent.top + 30) - parent.top + (kind === 'rename' ? 0 : 36))}px` });
         input.onkeydown = event => {
             event.stopPropagation();
             if (event.isComposing || event.keyCode === 229) return;
@@ -259,8 +259,8 @@ export class MindMapWritingController {
         const target = this.surface.ownerDocument.elementFromPoint(event.clientX, event.clientY)?.closest('[data-node-id]');
         const id = target?.getAttribute('data-node-id');
         drag.operation = undefined; this.preview.hidden = false;
-        this.preview.style.left = `${event.clientX - this.overlay.getBoundingClientRect().left + 12}px`;
-        this.preview.style.top = `${event.clientY - this.overlay.getBoundingClientRect().top + 12}px`;
+        this.preview.setCssStyles({ left: `${event.clientX - this.overlay.getBoundingClientRect().left + 12}px` });
+        this.preview.setCssStyles({ top: `${event.clientY - this.overlay.getBoundingClientRect().top + 12}px` });
         this.surface.querySelectorAll('.cmm-writing-drop-target').forEach(el => el.classList.remove('cmm-writing-drop-target'));
         if (!target || !id) { this.dropZones.hidden = true; this.preview.textContent = '移到目标章节：上方 / 子章节 / 下方'; return; }
         const rect = target.getBoundingClientRect(), ratio = (event.clientY - rect.top) / rect.height;
@@ -269,9 +269,9 @@ export class MindMapWritingController {
             index: (id === DOCUMENT_ROOT ? this.document.roots : this.document.sections.get(id)!.children).filter(child => child !== drag.id).length } :
             { type: zone === 'before' ? 'moveBefore' : 'moveAfter', nodeId: drag.id, targetId: id };
         const parent = this.overlay.getBoundingClientRect();
-        this.dropZones.hidden = false; this.dropZones.style.left = `${rect.left - parent.left}px`;
-        this.dropZones.style.top = `${rect.top - parent.top}px`; this.dropZones.style.width = `${rect.width}px`;
-        this.dropZones.style.height = `${rect.height}px`;
+        this.dropZones.hidden = false; this.dropZones.setCssStyles({ left: `${rect.left - parent.left}px` });
+        this.dropZones.setCssStyles({ top: `${rect.top - parent.top}px` }); this.dropZones.setCssStyles({ width: `${rect.width}px` });
+        this.dropZones.setCssStyles({ height: `${rect.height}px` });
         Array.from(this.dropZones.children).forEach((child, index) => child.classList.toggle('is-target', index === (zone === 'before' ? 0 : zone === 'child' ? 1 : 2)));
         const key = JSON.stringify([this.document.revision, operation]);
         if (this.validatedDrop?.key !== key) {

@@ -24,6 +24,10 @@ import {fromTemplate} from './src/composer/ComposerTools';
 import {OrganicMindMapView} from './src/organic/OrganicMindMapView';
 import {ObsidianDocumentHost} from './src/writing/ObsidianDocumentHost';
 import {TFile,TFolder} from 'obsidian';
+for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
+    prototype.setCssStyles = function(styles) { Object.assign(this.style, styles); };
+    prototype.setCssProps = function(props) { for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value); };
+}
 HTMLElement.prototype.empty=function(){this.replaceChildren();};
 HTMLElement.prototype.setText=function(text){this.textContent=text;};
 HTMLElement.prototype.addClass=function(...names){this.classList.add(...names);};

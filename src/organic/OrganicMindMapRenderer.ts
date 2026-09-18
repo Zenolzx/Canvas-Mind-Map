@@ -73,7 +73,7 @@ export class OrganicMindMapRenderer {
         }
         for (const node of result.nodes) {
             const group = existing.get(node.id) ?? svgElement(document, 'g', { 'data-node-id': node.id });
-            group.replaceChildren(); group.style.opacity = '';
+            group.replaceChildren(); group.setCssStyles({ opacity: '' });
             group.setAttribute('transform', `translate(${node.x} ${node.y})`);
             group.setAttribute('class', `cmm-organic-node${node.depth === 0 ? ' is-root' : ''}`);
             container.append(group);
@@ -81,7 +81,7 @@ export class OrganicMindMapRenderer {
             if (actions.currentMatch === node.id) group.classList.add('is-current-match');
             if (actions.selected === node.id) group.classList.add('is-selected');
             if (actions.reading === node.id) group.classList.add('is-reading');
-            if (actions.emphasized && !actions.emphasized.has(node.id)) group.style.opacity = '0.22';
+            if (actions.emphasized && !actions.emphasized.has(node.id)) group.classList.add('cmm-organic-node-dimmed');
             const heading = svgElement(document, 'g', { role: 'link', tabindex: 0, 'aria-label': node.title });
             group.append(heading);
             heading.append(svgElement(document, 'rect', { width: node.width, height: node.height, rx: 18,

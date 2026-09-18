@@ -203,7 +203,7 @@ export class OrganicMindMapView extends ItemView {
         this.measure = (text, size, weight) => {
             context.font = `${weight} ${size}px ${family}`; return context.measureText(text).width;
         };
-        this.svg.style.fontFamily = family;
+        this.svg.setCssStyles({ fontFamily: family });
         this.resizeObserver = new ResizeObserver(() => {
             // Resizing is not a viewport command: preserve the live transform.
             this.transform(); this.remember(false);
@@ -347,7 +347,7 @@ export class OrganicMindMapView extends ItemView {
     }
     private applySplit(): void {
         if (this.readerVisible || this.isWriting) this.ensureSplit();
-        this.writingLayout?.style.setProperty('--cmm-map-ratio', `${this.splitRatio * 100}%`);
+        this.writingLayout?.setCssProps({ '--cmm-map-ratio': `${this.splitRatio * 100}%` });
         this.writingLayout?.classList.toggle('editor-hidden', this.isWriting ? !this.editorVisible : !this.readerVisible);
         if (this.editorPane) this.editorPane.hidden = !this.isWriting;
         if (this.readerPane) this.readerPane.hidden = this.isWriting || !this.readerVisible;

@@ -200,7 +200,7 @@ export class ComposerView extends ItemView {
     }
     private applyPanel(): void {
         const visible = this.draft.panel === 'show' || (this.draft.panel === 'auto' && this.autoPanel);
-        this.split.classList.toggle('has-body', visible); this.panel.style.width = `${this.draft.panelWidth * 100}%`;
+        this.split.classList.toggle('has-body', visible); this.panel.setCssStyles({ width: `${this.draft.panelWidth * 100}%` });
     }
     private visibleOrder(): string[] {
         const visible = new Set(this.result?.nodes.map(n => n.id));
@@ -234,7 +234,7 @@ export class ComposerView extends ItemView {
         const matches = searchDraft(this.draft, this.query, this.searchScope);
         for (const { node, depth } of entries(this.draft, true).filter(e => e.unsorted)) {
             const row = this.drawerList.createDiv({ cls: 'cmm-composer-unsorted-node', attr: { 'data-node-id': node.id } });
-            row.style.marginLeft = `${(depth - 1) * 12}px`;
+            row.setCssStyles({ marginLeft: `${(depth - 1) * 12}px` });
             row.classList.toggle('is-selected', this.selected.includes(node.id)); row.classList.toggle('is-match', matches.includes(node.id));
             const label = this.button(row, `${node.type === 'idea' ? '? ' : node.type === 'todo' ? node.checked ? '☑ ' : '☐ ' : ''}${node.title || 'New idea'}`, event => this.select(node.id, event));
             label.ondblclick = () => { this.select(node.id); this.rename(false); };
@@ -338,9 +338,9 @@ export class ComposerView extends ItemView {
         if (!fresh) this.history.beginEdit();
         const input = this.stage.createEl('input', { cls: 'cmm-composer-title-input', value: original, attr: { 'aria-label': fresh ? 'New section title' : 'Rename node' } });
         this.nameInput = input;
-        input.style.left = `${geometry.x * this.viewport.scale + this.viewport.offset.x}px`;
-        input.style.top = `${geometry.y * this.viewport.scale + this.viewport.offset.y}px`;
-        input.style.width = `${Math.max(180, geometry.width * this.viewport.scale)}px`;
+        input.setCssStyles({ left: `${geometry.x * this.viewport.scale + this.viewport.offset.x}px` });
+        input.setCssStyles({ top: `${geometry.y * this.viewport.scale + this.viewport.offset.y}px` });
+        input.setCssStyles({ width: `${Math.max(180, geometry.width * this.viewport.scale)}px` });
         let finished = false;
         this.finishName = (cancel = false) => {
             if (finished) return; finished = true; this.finishName = undefined; this.nameInput = undefined;
@@ -428,7 +428,7 @@ export class ComposerView extends ItemView {
                     drop = { target, position, valid }; preview.hidden = false;
                     preview.textContent = valid ? target === '@unsorted' ? 'Move to Unsorted Ideas' : `Before ${position === 'before' ? '◀' : ''}\nMake child ${position === 'child' ? '◀' : ''}\nAfter ${position === 'after' ? '◀' : ''}` : reason;
                     preview.classList.toggle('is-invalid', !valid);
-                    const stage = this.stage.getBoundingClientRect(); preview.style.left = `${Math.max(0, Math.min(stage.width - 170, bounds.right - stage.left + 10))}px`; preview.style.top = `${Math.max(0, bounds.top - stage.top)}px`;
+                    const stage = this.stage.getBoundingClientRect(); preview.setCssStyles({ left: `${Math.max(0, Math.min(stage.width - 170, bounds.right - stage.left + 10))}px` }); preview.setCssStyles({ top: `${Math.max(0, bounds.top - stage.top)}px` });
                 }
             }
             last = { x: e.clientX, y: e.clientY }; this.transform();

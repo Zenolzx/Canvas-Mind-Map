@@ -8,6 +8,10 @@ import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
 import { TFile, MarkdownView, editorInfoField } from 'obsidian';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
+    prototype.setCssStyles = function(styles) { Object.assign(this.style, styles); };
+    prototype.setCssProps = function(props) { for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value); };
+}
 HTMLElement.prototype.empty = function(){this.replaceChildren();};
 HTMLElement.prototype.addClass = function(name){this.classList.add(name);};
 HTMLElement.prototype.removeClass = function(name){this.classList.remove(name);};

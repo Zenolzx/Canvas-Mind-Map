@@ -8,6 +8,7 @@ class Element {
     createEl(tag, options = {}) { const el = new Element(); el.tag = tag; el.text = options.text; this.children.push(el); return el; }
     createDiv(options) { return this.createEl('div', options); }
     empty() { this.children = []; }
+    setCssProps(props) { Object.assign(this.style, props); }
     setAttribute() {}
 }
 class Component { load() {} unload() { this.unloaded = true; } }

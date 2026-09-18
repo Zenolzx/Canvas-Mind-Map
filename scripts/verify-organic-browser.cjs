@@ -59,6 +59,10 @@ for (const text of ['', 'No headings', '# 单节点 😀', '# A\\n# B', '# A\\n#
 }
 renderer.close();
 // Real DOM and production View, with only vault/workspace APIs replaced at the host boundary.
+for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
+    prototype.setCssStyles = function(styles) { Object.assign(this.style, styles); };
+    prototype.setCssProps = function(props) { for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value); };
+}
 HTMLElement.prototype.empty = function(){this.replaceChildren();};
 HTMLElement.prototype.addClass = function(name){this.classList.add(name);};
 HTMLElement.prototype.createEl = function(tag, options = {}) {
