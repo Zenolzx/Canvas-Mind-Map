@@ -7,12 +7,44 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.goto(pathToFileURL(path.resolve('tmp/composer-browser/index.html')).href);await page.waitForFunction(()=>window.ready);
   const state=()=>page.evaluate(()=>window.composerTest.view.history.draft);
   assert.equal(await page.evaluate(()=>window.composerTest.getCreated()),0);
+  assert.equal(await page.locator('.cmm-composer-body').isVisible(),false);
+  assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),false);
+  assert.equal(await page.locator('.cmm-composer-search').isVisible(),false);
+  assert.equal(await page.locator('.cmm-composer-toolbar > button').count(),5);
+  await page.keyboard.press('Control+Enter');assert.equal(await page.locator('.cmm-composer-body').isVisible(),true);
+  await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'show');
+  await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'auto');
+  await page.getByRole('button',{name:'Close Body',exact:true}).click();assert.equal(await page.locator('.cmm-composer-body').isVisible(),false);
+  for (const title of ['Radial','Compact','Horizontal']) {
+   await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Layout',exact:true}).click();await page.getByRole('menuitem',{name:title,exact:true}).click();
+  }
+  for (const title of ['Show','Hide','Auto']) {
+   await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Body',exact:true}).click();await page.getByRole('menuitem',{name:title,exact:true}).click();
+   assert.equal(await page.locator('.cmm-composer-body').isVisible(),title==='Show');
+  }
+  // Native dblclick must retain its target through the first click's selection update.
+  const root=page.locator('svg [role="link"]').first();
+  await root.focus();await page.keyboard.press('Enter');assert.equal((await state()).root.children.length,1);await page.keyboard.press('Escape');assert.equal((await state()).root.children.length,0);
+  await root.dblclick();
+  assert.equal(await page.locator('.cmm-composer-title-input').evaluate(el=>document.activeElement===el && el.selectionStart===0 && el.selectionEnd===el.value.length),true);
+  await page.locator('.cmm-composer-title-input').fill('Cancelled');await page.keyboard.press('Escape');
+  assert.equal((await state()).root.title,'Untitled');
+  await page.getByRole('button',{name:'View',exact:true}).focus();await page.keyboard.press('F2');await page.locator('.cmm-composer-title-input').fill('Blur saved');
+  await page.getByRole('button',{name:'Search',exact:true}).click();assert.equal((await state()).root.title,'Blur saved');
+  await page.getByRole('searchbox').press('Escape');
   await page.keyboard.press('F2');await page.locator('.cmm-composer-title-input').fill('Operating Systems');await page.keyboard.press('Enter');assert.equal((await state()).root.children.length,0);
   await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Process');await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Memory');
   await page.locator('.cmm-composer-title-input').evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));
   assert.equal((await state()).root.children.length,2);
   await page.keyboard.press('Tab');await page.locator('.cmm-composer-title-input').fill('Paging');await page.keyboard.press('Enter');await page.keyboard.press('Escape');
   let d=await state();assert.deepEqual(d.root.children.map(n=>n.title),['Process','Memory']);assert.equal(d.root.children[1].children[0].title,'Paging');
+  await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Fit to view',exact:true}).click();
+  const ordinary=page.locator('svg [role="link"]').filter({has:page.locator('text',{hasText:/^Process$/})});
+  await ordinary.dblclick();await page.locator('.cmm-composer-title-input').fill('Process renamed');await page.keyboard.press('Enter');
+  assert.equal((await state()).root.children.length,2);
+  await page.keyboard.press('F2');await page.locator('.cmm-composer-title-input').fill('Cancelled node');await page.keyboard.press('Escape');
+  assert.equal((await state()).root.children[0].title,'Process renamed');
+  await page.keyboard.press('F2');await page.locator('.cmm-composer-title-input').fill('Process');await page.keyboard.press('Enter');
   await page.evaluate(()=>{const v=window.composerTest.view;v.select(v.draft.root.children[1].children[0].id);});
   await page.keyboard.press('Control+Enter');const body=page.locator('.cmm-composer-body textarea');await body.fill('Paging body.\n\n- Page table');
   await page.keyboard.press('Escape');await page.keyboard.press('Alt+ArrowLeft');assert.equal((await state()).root.children[2].title,'Paging');

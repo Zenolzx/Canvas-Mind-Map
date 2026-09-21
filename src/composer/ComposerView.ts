@@ -1,4 +1,4 @@
-import { App, ItemView, Menu, Modal, Notice, parseYaml, Scope, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { App, ItemView, Menu, Modal, Notice, parseYaml, Scope, setIcon, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { OrganicLayoutEngine, OrganicLayoutResult } from '../organic/OrganicLayoutEngine';
 import { OrganicMindMapRenderer, svgElement } from '../organic/OrganicMindMapRenderer';
 import { OrganicViewportController } from '../organic/OrganicViewportController';
@@ -25,7 +25,8 @@ export class ComposerView extends ItemView {
     private drawer!: HTMLElement; private drawerList!: HTMLElement; private drawerOpen = false;
     private searchBar!: HTMLElement; private searchInput!: HTMLInputElement; private searchLabel!: HTMLElement;
     private query = ''; private searchScope: SearchScope = 'titles'; private searchIndex = 0;
-    private focusButton!: HTMLButtonElement; private typeInput!: HTMLSelectElement; private todoButton!: HTMLButtonElement;
+    private documentButton!: HTMLButtonElement; private ideasButton!: HTMLButtonElement; private contextBar!: HTMLElement; private emptyHint!: HTMLElement; private pinButton!: HTMLButtonElement; private interacted = false; private hintShown = false;
+    private focusButton!: HTMLButtonElement; private typeInput!: HTMLSelectElement;
     private selectionAnchor?: string;
     private get selected(): string[] {
         const valid = new Set(entries(this.draft, true).map(e => e.node.id));
@@ -53,22 +54,16 @@ export class ComposerView extends ItemView {
     async onOpen(): Promise<void> {
         this.contentEl.empty(); this.contentEl.addClass('cmm-organic-view', 'cmm-composer');
         this.scope = new Scope(this.app.scope);
+        this.scope.register([], 'F2', event => { if ((event.target as Element)?.closest?.('input, textarea, [contenteditable=true]')) return true; this.rename(false); return false; });
         this.scope.register(['Mod'], 'f', event => { if (event.target === this.body || event.target === this.nameInput) return true; this.openSearch(); return false; });
         for (const [modifiers, key] of [[['Mod'], 'z'], [['Mod', 'Shift'], 'z'], [['Mod'], 'Enter']] as const)
             this.scope.register([...modifiers], key, event => { if (event.target === this.nameInput) return true; this.key(event); return false; });
         const toolbar = this.contentEl.createDiv({ cls: 'cmm-composer-toolbar' });
-        toolbar.createEl('strong', { text: 'COMPOSER' });
-        const layout = toolbar.createEl('select', { attr: { 'aria-label': 'Layout' } });
-        for (const [value, text] of [['organic-horizontal', 'Horizontal'], ['organic-radial', 'Radial'], ['compact-organic', 'Compact']]) layout.createEl('option', { text, value });
-        layout.onchange = () => { this.draft.layout = layout.value as ComposerDraft['layout']; this.render(); this.remember(); };
-        const panel = toolbar.createEl('select', { attr: { 'aria-label': 'Body panel' } });
-        for (const value of ['auto', 'show', 'hide']) panel.createEl('option', { text: `Body: ${value}`, value });
-        panel.onchange = () => { this.draft.panel = panel.value as ComposerDraft['panel']; this.applyPanel(); this.ensureVisible(); this.remember(); };
-        this.button(toolbar, '−', () => this.zoom(.85)); this.button(toolbar, '+', () => this.zoom(1.18)); this.button(toolbar, 'Fit', () => this.fit());
+        this.documentButton = this.button(toolbar, 'Untitled', () => { this.select(this.draft.root.id); this.rename(false); });
+        this.documentButton.classList.add('cmm-composer-document-name');
         this.button(toolbar, 'Search', () => this.openSearch());
-        this.focusButton = this.button(toolbar, 'Focus', () => this.focusBranch());
-        this.button(toolbar, 'Unsorted Ideas', () => { this.drawerOpen = !this.drawerOpen; this.renderDrawer(); });
-        this.button(toolbar, '⋯', event => this.documentMenu(event));
+        this.button(toolbar, 'View', event => this.viewMenu(event));
+        const more = this.button(toolbar, '', event => this.documentMenu(event)); setIcon(more, 'ellipsis'); more.setAttribute('aria-label', 'More');
         this.button(toolbar, 'Create Note', () => this.createNote()).addClass('mod-cta');
         this.searchBar = this.contentEl.createDiv({ cls: 'cmm-composer-search' }); this.searchBar.hidden = true;
         this.searchInput = this.searchBar.createEl('input', { type: 'search', attr: { placeholder: 'Search document and unsorted ideas', 'aria-label': 'Search Composer' } });
@@ -84,7 +79,7 @@ export class ComposerView extends ItemView {
         this.split = this.contentEl.createDiv({ cls: 'cmm-composer-split' });
         this.drawer = this.split.createDiv({ cls: 'cmm-composer-unsorted', attr: { 'aria-label': 'Unsorted Ideas' } }); this.drawer.hidden = true;
         this.drawer.createEl('strong', { text: 'Unsorted Ideas' });
-        this.drawer.createEl('p', { text: 'Capture first, then drag into the document.' });
+        this.button(this.drawer, 'Close Ideas', () => { this.drawerOpen = false; this.renderDrawer(); this.stage.focus(); });
         this.button(this.drawer, 'Add idea', () => this.addUnsorted());
         this.button(this.drawer, 'Move selection here', () => this.change(draft => parkNodes(draft, this.selected)));
         this.drawerList = this.drawer.createDiv({ cls: 'cmm-composer-unsorted-list' });
@@ -102,11 +97,19 @@ export class ComposerView extends ItemView {
         divider.onkeydown = event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); this.draft.panelWidth = Math.max(.2, Math.min(.7, this.draft.panelWidth + (event.key === 'ArrowLeft' ? .05 : -.05))); this.applyPanel(); this.remember(); } };
         this.panel = this.split.createDiv({ cls: 'cmm-composer-body' });
         this.breadcrumb = this.panel.createDiv({ cls: 'cmm-composer-breadcrumb' });
-        const typeRow = this.panel.createDiv({ cls: 'cmm-composer-type' });
-        this.typeInput = typeRow.createEl('select', { attr: { 'aria-label': 'Node type' } });
+        const inspectorActions = this.panel.createDiv({ cls: 'cmm-composer-inspector-actions' });
+        this.pinButton = this.button(inspectorActions, 'Pin', () => { this.draft.panel = this.draft.panel === 'show' ? 'auto' : 'show'; this.applyPanel(); this.remember(); });
+        this.button(inspectorActions, 'Close Body', () => { this.autoPanel = false; this.draft.panel = 'auto'; this.applyPanel(); this.remember(); this.stage.focus(); });
+        this.ideasButton = this.button(this.stage, 'Ideas', () => { this.drawerOpen = !this.drawerOpen; this.renderDrawer(); }); this.ideasButton.classList.add('cmm-composer-ideas-entry');
+        this.emptyHint = this.stage.createDiv({ cls: 'cmm-composer-empty-hint', text: 'Enter to add a section' });
+        this.contextBar = this.stage.createDiv({ cls: 'cmm-composer-context', attr: { 'aria-label': 'Node actions', role: 'toolbar' } });
+        this.button(this.contextBar, 'Add', () => this.add(true));
+        this.typeInput = this.contextBar.createEl('select', { attr: { 'aria-label': 'Node type' } });
         for (const [value, text] of [['heading', 'Heading'], ['idea', 'Idea'], ['todo', 'Todo']]) this.typeInput.createEl('option', { value, text });
         this.typeInput.onchange = () => this.changeType(this.typeInput.value as ComposerNode['type']);
-        this.todoButton = this.button(typeRow, 'Mark complete', () => this.change(draft => { const node = this.node(undefined, draft); node.checked = !node.checked; }));
+        this.focusButton = this.button(this.contextBar, 'Focus', () => this.focusBranch());
+        this.button(this.contextBar, 'Body', () => this.openBody());
+        const nodeMore = this.button(this.contextBar, '', event => this.nodeMenu(event)); setIcon(nodeMore, 'ellipsis'); nodeMore.setAttribute('aria-label', 'Node menu');
         this.body = this.panel.createEl('textarea', { attr: { 'aria-label': 'Direct section body', placeholder: 'Write paragraphs, lists, quotes or code here. Create section headings in the mind map.' } });
         this.body.oninput = () => {
             const id = this.draft.selection, text = this.body.value;
@@ -115,6 +118,8 @@ export class ComposerView extends ItemView {
         this.status = this.contentEl.createDiv({ cls: 'cmm-composer-status' });
         this.register(this.store.subscribe(() => this.updateStatus()));
         this.registerDomEvent(this.contentEl, 'keydown', event => this.key(event));
+        // Composer owns structure shortcuts even when keyboard focus is on an SVG heading.
+        this.registerDomEvent(this.stage, 'keydown', event => { if ((event.target as Element).closest('svg') && !(event.target as Element).closest('[role=button], [role=checkbox]')) this.key(event); }, true);
         this.registerDomEvent(this.stage, 'dblclick', event => { const id = this.idAt(event.target); if (id) { this.select(id); this.rename(false); } });
         this.registerDomEvent(this.stage, 'pointerdown', event => { if ((event.target as Element).closest('svg')) this.pointer(event); });
         this.registerDomEvent(this.stage, 'wheel', event => {
@@ -143,8 +148,7 @@ export class ComposerView extends ItemView {
         this.store.put(this.draft); this.app.workspace.requestSaveLayout();
     }
     private updateStatus(): void {
-        const stats = draftStatistics(this.draft);
-        if (this.status) this.status.textContent = `${stats.sections} sections · ${stats.ideas} ideas · ${stats.completed}/${stats.todos} todos · ${stats.unsorted} unsorted · ${stats.words} words/字 · ${this.selected.length > 1 ? `${this.selected.length} selected · ` : ''}${this.store.status}${this.draft.root.children.length ? '' : ' · Start creating: Enter to add your first section'}`;
+        if (this.status) this.status.textContent = this.store.status === 'Draft saved' ? 'Saved' : this.store.status === 'Saving draft…' ? 'Saving…' : this.store.status;
     }
     private render(anchor = false, anchorId = this.draft.selection): void {
         if (!this.scene) return;
@@ -153,27 +157,39 @@ export class ComposerView extends ItemView {
         const matches = searchDraft(this.draft, this.query, this.searchScope);
         this.searchIndex = matches.length ? Math.min(this.searchIndex, matches.length - 1) : 0;
         const projection = composerProjection(this.draft, matches[this.searchIndex]);
-        const next = this.engine.layout(projection.model, { style: this.draft.layout,
+        const next = this.engine.layout(projection.model, { style: this.draft.layout, fontScale: this.draft.layout === 'compact-organic' ? .72 : .8, branchWidth: 1.8,
             collapsed: projection.collapsed,
             measureText: (text, size, weight) => { if (!context) return text.length * size * .6; context.font = `${weight} ${size}px sans-serif`; return context.measureText(text).width; } });
         const current = next.nodes.find(n => n.id === anchorId);
         if (anchor && old && current) this.viewport.pan((old.x - current.x) * this.viewport.scale, (old.y - current.y) * this.viewport.scale);
+        // Composer uses theme colors; the shared Organic palette remains unchanged.
+        next.nodes.forEach(node => { node.color = 'var(--text-normal)'; });
+        next.branches.forEach(branch => { branch.color = 'var(--background-modifier-border)'; });
         this.result = next;
         this.renderer.render(this.scene, next, { navigate: (id, event) => this.select(id, event), toggle: id => this.change(draft => { const node = this.node(id, draft); node.collapsed = !node.collapsed; }),
             toggleLabel: collapsed => collapsed ? 'Expand branch' : 'Collapse branch', selected: this.draft.selection,
             matches: new Set(matches), currentMatch: matches[this.searchIndex],
-            contextMenu: (id, event) => { if (!this.selected.includes(id)) this.select(id); if (id === this.draft.root.id) this.documentMenu(event); else this.nodeMenu(event); } });
+            contextMenu: (id, event) => { if (!this.selected.includes(id)) this.select(id); this.nodeMenu(event); } });
         for (const group of Array.from(this.scene.querySelectorAll('[data-node-id]'))) {
             const id = group.getAttribute('data-node-id')!, node = this.node(id);
             group.classList.toggle('is-multiselected', this.selected.includes(id)); group.classList.add(`is-${node.type}`);
+            if (node.type === 'todo') {
+                const check = svgElement(this.contentEl.ownerDocument, 'g', { role: 'checkbox', tabindex: '0', 'aria-label': 'Complete ' + node.title, 'aria-checked': String(!!node.checked), transform: 'translate(-22 8)' });
+                check.append(svgElement(this.contentEl.ownerDocument, 'rect', { width: 16, height: 16, rx: 4, fill: node.checked ? 'var(--interactive-accent)' : 'var(--background-primary)', stroke: 'var(--text-muted)' }));
+                if (node.checked) check.append(svgElement(this.contentEl.ownerDocument, 'path', { d: 'M3 8 L7 12 L13 4', fill: 'none', stroke: 'var(--text-on-accent)', 'stroke-width': 2 }));
+                const toggle = (event: Event) => { event.preventDefault(); event.stopPropagation(); this.change(draft => { const todo = this.node(id, draft); todo.checked = !todo.checked; }); };
+                check.addEventListener('click', toggle); check.addEventListener('pointerdown', event => event.stopPropagation());
+                check.addEventListener('keydown', event => { if (event.key === ' ' || event.key === 'Enter') toggle(event); }); group.append(check);
+            }
         }
         this.transform(); this.syncBody(); this.applyPanel(); this.updateStatus();
         this.renderDrawer(); this.focusButton.textContent = this.draft.focusNode ? 'Show overview' : 'Focus';
         this.searchLabel.textContent = matches.length ? `${this.searchIndex + 1} / ${matches.length}` : this.query ? 'No results' : '';
-        const selects = this.contentEl.querySelectorAll('select');
-        if (selects[0]) selects[0].value = this.draft.layout; if (selects[1]) selects[1].value = this.draft.panel;
+        this.documentButton.textContent = this.draft.root.title || 'Untitled';
+        this.emptyHint.hidden = !!this.draft.root.children.length;
+        this.positionContext();
     }
-    private transform(): void { this.scene.setAttribute('transform', `translate(${this.viewport.offset.x} ${this.viewport.offset.y}) scale(${this.viewport.scale})`); }
+    private transform(): void { this.scene.setAttribute('transform', `translate(${this.viewport.offset.x} ${this.viewport.offset.y}) scale(${this.viewport.scale})`); this.positionContext(); }
     private fit(): void { if (this.result) { this.viewport.fit(this.result.bounds, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform(); this.remember(); } }
     private zoom(factor: number): void { this.viewport.zoom(factor, this.svg.clientWidth / 2, this.svg.clientHeight / 2); this.transform(); this.remember(); }
     private select(id: string, event?: MouseEvent | KeyboardEvent): void {
@@ -186,7 +202,15 @@ export class ComposerView extends ItemView {
             this.selectionAnchor = id;
         } else { this.draft.selections = [id]; this.selectionAnchor = id; }
         this.draft.selection = this.draft.selections.includes(id) ? id : this.draft.selections[0] ?? this.draft.root.id;
-        this.autoPanel = true; this.render(); this.ensureVisible(); this.stage.focus(); this.remember();
+        // Selection must preserve hit targets across a native click / dblclick sequence.
+        this.interacted = true;
+        for (const group of Array.from(this.scene.querySelectorAll('[data-node-id]'))) {
+            const key = group.getAttribute('data-node-id')!;
+            group.classList.toggle('is-selected', key === this.draft.selection);
+            group.classList.toggle('is-multiselected', this.selected.includes(key));
+        }
+        for (const row of Array.from(this.drawerList.children)) row.classList.toggle('is-selected', this.selected.includes(row.getAttribute('data-node-id')!));
+        this.syncBody(); this.positionContext(); this.stage.focus(); this.remember();
     }
     private syncBody(): void {
         const node = this.node(); if (this.body.value !== node.body) this.body.value = node.body;
@@ -196,10 +220,11 @@ export class ComposerView extends ItemView {
         for (const item of path) { this.button(this.breadcrumb, item.title || 'Untitled', () => this.select(item.id)); }
         this.body.setAttribute('aria-label', node === this.draft.root ? 'Document introduction' : `${node.title}: direct body`);
         this.typeInput.value = node.type; this.typeInput.disabled = this.selected.includes(this.draft.root.id);
-        this.todoButton.hidden = node.type !== 'todo'; this.todoButton.textContent = node.checked ? 'Mark incomplete' : 'Mark complete';
+
     }
     private applyPanel(): void {
         const visible = this.draft.panel === 'show' || (this.draft.panel === 'auto' && this.autoPanel);
+        this.pinButton?.setAttribute('aria-pressed', String(this.draft.panel === 'show'));
         this.split.classList.toggle('has-body', visible); this.panel.setCssStyles({ width: `${this.draft.panelWidth * 100}%` });
     }
     private visibleOrder(): string[] {
@@ -229,6 +254,8 @@ export class ComposerView extends ItemView {
         this.query = ''; this.searchInput.value = ''; this.render(); this.fit(); this.remember();
     }
     private renderDrawer(): void {
+        this.ideasButton.textContent = `Ideas${this.draft.unsorted?.length ? ` ${this.draft.unsorted.length}` : ''}`;
+        this.ideasButton.setAttribute('aria-expanded', String(this.drawerOpen));
         this.drawer.hidden = !this.drawerOpen; this.drawerList.empty();
         if (!this.drawerOpen) return;
         const matches = searchDraft(this.draft, this.query, this.searchScope);
@@ -240,7 +267,7 @@ export class ComposerView extends ItemView {
             label.ondblclick = () => { this.select(node.id); this.rename(false); };
             row.oncontextmenu = event => { event.preventDefault(); if (!this.selected.includes(node.id)) this.select(node.id); this.nodeMenu(event); };
         }
-        if (!this.draft.unsorted?.length) this.drawerList.createEl('p', { text: 'No unsorted ideas yet.' });
+        if (!this.draft.unsorted?.length) this.drawerList.createEl('p', { text: 'Capture ideas here before deciding where they belong.' });
     }
     private prompt(title: string, value: string, accept: (value: string) => boolean | void): void {
         const modal = new Modal(this.app); modal.titleEl.setText(title);
@@ -297,6 +324,7 @@ export class ComposerView extends ItemView {
     private async openDraft(draft: ComposerDraft): Promise<void> {
         try { this.store.put(draft); await this.store.flush(); const leaf = this.app.workspace.getLeaf('tab');
             await leaf.setViewState({ type: COMPOSER_VIEW, active: true, state: { draftId: draft.draftId } });
+            (leaf.view as ComposerView).focusMap();
         } catch (error) { new Notice((error as Error).message); }
     }
     private ensureVisible(): void {
@@ -334,13 +362,17 @@ export class ComposerView extends ItemView {
     private rename(fresh: boolean): void {
         this.finishName?.(); const id = this.draft.selection, original = this.node().title;
         const geometry = this.result?.nodes.find(n => n.id === id);
-        if (!geometry) { this.prompt('Rename idea', original, title => this.change(draft => { this.node(id, draft).title = title; })); return; }
+        const row = Array.from(this.drawerList.children).find(row => row.getAttribute('data-node-id') === id) as HTMLElement | undefined;
+        if (!geometry && !row) return;
         if (!fresh) this.history.beginEdit();
-        const input = this.stage.createEl('input', { cls: 'cmm-composer-title-input', value: original, attr: { 'aria-label': fresh ? 'New section title' : 'Rename node' } });
-        this.nameInput = input;
+        const input = (geometry ? this.stage : row!).createEl('input', { cls: geometry ? 'cmm-composer-title-input' : 'cmm-composer-idea-input', value: original, attr: { 'aria-label': fresh ? 'New section title' : 'Rename node' } });
+        input.value = original; this.nameInput = input; this.contextBar.hidden = true;
+        if (fresh && !this.hintShown) { this.hintShown = true; const hint = this.stage.createDiv({ cls: 'cmm-composer-key-hint', text: 'Enter sibling · Tab child · Esc cancel' }); setTimeout(() => hint.remove(), 4000); }
+        if (geometry) {
         input.setCssStyles({ left: `${geometry.x * this.viewport.scale + this.viewport.offset.x}px` });
         input.setCssStyles({ top: `${geometry.y * this.viewport.scale + this.viewport.offset.y}px` });
         input.setCssStyles({ width: `${Math.max(180, geometry.width * this.viewport.scale)}px` });
+        }
         let finished = false;
         this.finishName = (cancel = false) => {
             if (finished) return; finished = true; this.finishName = undefined; this.nameInput = undefined;
@@ -349,7 +381,8 @@ export class ComposerView extends ItemView {
             this.history.endEdit(cancel || !title); this.render(true); this.remember();
         };
         input.oninput = () => { this.change(draft => { this.node(id, draft).title = input.value; }, `title:${id}`, false); };
-        input.onblur = () => this.finishName?.();
+        const finish = this.finishName;
+        input.onblur = () => finish();
         input.onkeydown = event => {
             if (event.isComposing || event.keyCode === 229) return;
             if (!['Enter', 'Tab', 'Escape'].includes(event.key)) return;
@@ -382,12 +415,12 @@ export class ComposerView extends ItemView {
         if (mod && event.key.toLowerCase() === 'f' && target !== this.body) { event.preventDefault(); this.openSearch(); return; }
         if (mod && event.key === 'Enter') { event.preventDefault(); this.autoPanel = true; this.draft.panel = this.draft.panel === 'hide' ? 'auto' : this.draft.panel; this.applyPanel(); this.body.focus(); return; }
         if (mod && event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) this.history.redo(); else this.history.undo(); this.render(true); this.ensureVisible(); this.remember(); return; }
+        if (event.key === 'F2' && !target.closest('textarea, input, [contenteditable=true]')) { event.preventDefault(); event.stopPropagation(); this.rename(false); return; }
         if (target.closest('textarea, input, select, button')) { if (event.key === 'Escape' && target === this.body) { event.preventDefault(); this.stage.focus(); } return; }
         let handled = true;
         if (event.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) this.structure(({ ArrowLeft: 'promote', ArrowRight: 'demote', ArrowUp: 'up', ArrowDown: 'down' } as const)[event.key as 'ArrowLeft']);
         else if (event.key === 'Enter') this.add(false);
         else if (event.key === 'Tab') event.shiftKey ? this.structure('promote') : this.add(true);
-        else if (event.key === 'F2') this.rename(false);
         else if (event.key === 'Delete' || event.key === 'Backspace') this.deleteNode();
         else if (event.key === '0') this.fit();
         else if (event.key === '+' || event.key === '=') this.zoom(1.18);
@@ -444,10 +477,41 @@ export class ComposerView extends ItemView {
         };
         this.dragCleanup?.(); this.dragCleanup = cleanup; win.addEventListener('pointermove', move); win.addEventListener('pointerup', end); win.addEventListener('pointercancel', cancel);
     }
+    private openBody(): void { this.autoPanel = true; if (this.draft.panel === 'hide') this.draft.panel = 'auto'; this.applyPanel(); this.body.focus(); this.remember(); }
+    private positionContext(): void {
+        if (!this.contextBar) return;
+        const node = this.result?.nodes.find(n => n.id === this.draft.selection);
+        this.contextBar.hidden = !node || !this.interacted || !!this.nameInput;
+        if (this.emptyHint) this.emptyHint.hidden = !!this.draft.root.children.length || this.interacted;
+        if (!node) return;
+        const x = node.x * this.viewport.scale + this.viewport.offset.x;
+        const y = (node.y + node.height) * this.viewport.scale + this.viewport.offset.y;
+        this.contextBar.style.left = Math.max(8, Math.min(x, this.stage.clientWidth - this.contextBar.offsetWidth - 8)) + 'px';
+        this.contextBar.style.top = Math.max(8, Math.min(y + 12, this.stage.clientHeight - 48)) + 'px';
+        if (this.emptyHint) { this.emptyHint.style.left = (x + node.width * this.viewport.scale / 2) + 'px'; this.emptyHint.style.top = (y + 16) + 'px'; }
+    }
+    private viewMenu(event: MouseEvent): void {
+        const menu = new Menu();
+        const section = (title: string, build: (child: Menu) => void) => menu.addItem(item => {
+            item.setTitle(title); const entry = item as typeof item & { setSubmenu?: () => Menu };
+            if (entry.setSubmenu) build(entry.setSubmenu()); else { item.setDisabled(true); build(menu); }
+        });
+        section('Layout', menu => {
+        for (const [value, title] of [['organic-radial', 'Radial'], ['organic-horizontal', 'Horizontal'], ['compact-organic', 'Compact']] as const)
+            menu.addItem(item => item.setTitle(title).setChecked(this.draft.layout === value).onClick(() => { this.draft.layout = value; this.render(); this.fit(); this.remember(); }));
+        });
+        section('Body', menu => {
+        for (const value of ['auto', 'show', 'hide'] as const) menu.addItem(item => item.setTitle(value[0].toUpperCase() + value.slice(1)).setChecked(this.draft.panel === value).onClick(() => { this.draft.panel = value; this.autoPanel = false; this.applyPanel(); this.remember(); }));
+        });
+        menu.addSeparator();
+        menu.addItem(item => item.setTitle('Fit to view').onClick(() => this.fit()));
+        menu.addItem(item => item.setTitle('Reset zoom').onClick(() => this.zoom(1 / this.viewport.scale)));
+        menu.showAtMouseEvent(event);
+    }
     private nodeMenu(event: MouseEvent): void {
         const menu = new Menu();
         menu.addItem(item => item.setTitle('Rename').onClick(() => this.rename(false)));
-        menu.addItem(item => item.setTitle('Edit body').onClick(() => { this.autoPanel = true; this.draft.panel = 'auto'; this.applyPanel(); this.body.focus(); }));
+        menu.addItem(item => item.setTitle('Edit body').onClick(() => { this.openBody(); }));
         const submenu = (label: string, build: (menu: Menu) => void) => menu.addItem(item => {
             item.setTitle(label); const supported = item as typeof item & { setSubmenu?: () => Menu };
             if (supported.setSubmenu) build(supported.setSubmenu()); else { item.setDisabled(true); build(menu); }
@@ -458,11 +522,11 @@ export class ComposerView extends ItemView {
             menu.addItem(item => item.setTitle('Create parent from selection').onClick(() => this.groupSelection()));
         });
         submenu('Structure', menu => {
-            for (const action of ['promote', 'demote', 'up', 'down'] as const) menu.addItem(item => item.setTitle(({ promote: 'Promote', demote: 'Demote', up: 'Move up', down: 'Move down' })[action]).onClick(() => this.structure(action)));
+            for (const action of ['promote', 'demote', 'up', 'down'] as const) menu.addItem(item => item.setTitle(({ promote: 'Promote', demote: 'Demote', up: 'Move before', down: 'Move after' })[action]).onClick(() => this.structure(action)));
             menu.addItem(item => item.setTitle('Move to Unsorted Ideas').onClick(() => { const ids = this.selected; this.drawerOpen = true; this.change(draft => parkNodes(draft, ids)); }));
             menu.addItem(item => item.setTitle('Move to document root').onClick(() => { const ids = this.selected; this.change(draft => moveNodes(draft, ids, draft.root.id, 'child')); }));
         });
-        submenu('View', menu => {
+        submenu('Branch', menu => {
             menu.addItem(item => item.setTitle('Focus branch').onClick(() => this.focusBranch(this.draft.selection)));
             menu.addItem(item => item.setTitle('Show overview').onClick(() => this.focusBranch(this.draft.root.id)));
             for (const [action, title] of [['one', 'Expand one level'], ['expand', 'Expand branch'], ['collapse', 'Collapse branch']] as const)
@@ -479,9 +543,10 @@ export class ComposerView extends ItemView {
     private documentMenu(event: MouseEvent): void {
         const menu = new Menu();
         menu.addItem(item => item.setTitle('Rename document').onClick(() => { this.select(this.draft.root.id); this.rename(false); }));
-        menu.addItem(item => item.setTitle('Edit introduction').onClick(() => { this.select(this.draft.root.id); this.draft.panel = 'auto'; this.applyPanel(); this.body.focus(); }));
+        menu.addItem(item => item.setTitle('Edit introduction').onClick(() => { this.select(this.draft.root.id); this.openBody(); }));
         menu.addItem(item => item.setTitle('Add top-level section').onClick(() => { this.select(this.draft.root.id); this.add(true); }));
         menu.addItem(item => item.setTitle('Use root as H1').setChecked(this.draft.rootAsHeading).onClick(() => this.change(draft => { draft.rootAsHeading = !draft.rootAsHeading; })));
+        menu.addItem(item => item.setTitle('Document Info').onClick(() => { const modal = new Modal(this.app); modal.titleEl.setText('Document Info'); for (const [key, value] of Object.entries(draftStatistics(this.draft))) modal.contentEl.createEl('p', { text: `${key}: ${value}` }); modal.open(); }));
         menu.addItem(item => item.setTitle('Document properties').onClick(() => this.documentProperties()));
         menu.addItem(item => item.setTitle('New from template').onClick(() => showTemplates(this.app, draft => { void this.openDraft({ ...draft, ...this.store.preferences }); }, this.draft.targetFolder)));
         menu.addItem(item => item.setTitle('Duplicate draft').onClick(() => { this.finishName?.(); void this.openDraft(duplicateDraft(this.draft)); }));
