@@ -15,6 +15,9 @@ import { OrganicExportService } from './OrganicExportService';
 import { DocumentStructure, DocumentStructureParser, projectDocumentMindMap, DOCUMENT_ROOT } from '../document';
 import { MindMapWritingController, countWritingWords } from '../writing/MindMapWritingController';
 import { ObsidianDocumentHost } from '../writing/ObsidianDocumentHost';
+import { binaryFingerprint, readSourceDocument, SourceDocument, supportedSource } from '../formats/SourceFormats';
+import { DocxEditor } from '../formats/DocxEditor';
+import { DocxWritingController } from '../writing/DocxWritingController';
 import { captureWritingView, restoreWritingView } from '../writing/WritingViewSnapshot';
 
 export const ORGANIC_VIEW = 'canvas-mind-map-organic';
@@ -23,6 +26,7 @@ export const ORGANIC_VIEW = 'canvas-mind-map-organic';
 export class OrganicMindMapView extends ItemView {
     private file?: TFile;
     private sourceText = '';
+    private external?: SourceDocument;
     private sourceLeaf?: WorkspaceLeaf;
     private model?: MindMapModel;
     private result?: OrganicLayoutResult;
@@ -56,6 +60,7 @@ export class OrganicMindMapView extends ItemView {
     private renderer = new OrganicMindMapRenderer();
     private engine = new OrganicLayoutEngine();
     private writing?: MindMapWritingController;
+    private docxWriting?: DocxWritingController;
     private writingLayout?: HTMLElement;
     private editorPane?: HTMLElement;
     private readerPane?: HTMLElement;
@@ -88,7 +93,7 @@ export class OrganicMindMapView extends ItemView {
         if (typeof state.file === 'string') {
             this.sourcePath = state.file;
             const file = this.app.vault.getAbstractFileByPath(state.file);
-            if (file instanceof TFile && file.extension === 'md') await this.loadSource(file);
+            if (file instanceof TFile && supportedSource(file)) await this.loadSource(file);
             else this.sourceDeleted(state.file);
         }
         if (this.pendingWritingState && !this.writing) {
@@ -140,7 +145,8 @@ export class OrganicMindMapView extends ItemView {
             focusNode: this.state.focusNode, reading: { ...this.state.reading },
             readerVisible: this.readerVisible, splitRatio: this.splitRatio, selectedNode: this.state.selectedNode, layout: this.state.layout, branchStyles: this.state.branchStyles,
             writing: this.writing ? { enabled: this.isWriting, splitRatio: this.splitRatio, editorVisible: this.editorVisible,
-                snapshot: captureWritingView(this.writing.document, this.state, this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) } : undefined };
+                snapshot: captureWritingView(this.writing.document, this.state, this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) } :
+                this.docxWriting ? { enabled: this.isWriting, splitRatio: this.splitRatio, editorVisible: this.editorVisible } : undefined };
         if (userAction) this.store.put(this.file.path, snapshot, this.stateOwner);
         else this.store.sync(this.file.path, snapshot, this.stateOwner);
     }
@@ -259,9 +265,32 @@ export class OrganicMindMapView extends ItemView {
     }
 
     openSearch(): void { this.toolbar?.openSearch(); }
-    async refresh(): Promise<void> { if (this.writing) { await this.writing.refresh(); return; } if (this.file) await this.loadSource(this.file, false); }
-    get isWriting(): boolean { return this.writing?.active ?? false; }
+    async refresh(): Promise<void> {
+        if (this.writing) { await this.writing.refresh(); return; }
+        if (this.docxWriting) {
+            const active = this.docxWriting.active;
+            if (!await this.docxWriting.close()) return;
+            this.docxWriting = undefined; this.editorPane?.empty();
+            if (this.file) await this.loadSource(this.file, false);
+            if (active) await this.toggleWriting();
+            return;
+        }
+        if (this.file) await this.loadSource(this.file, false);
+    }
+    get isWriting(): boolean { return !!(this.writing?.active || this.docxWriting?.active); }
     writingCommand(command: 'rename' | 'sibling' | 'child' | 'promote' | 'demote' | 'delete' | 'undo' | 'redo' | 'editor'): void {
+        const docx = this.docxWriting;
+        if (docx?.active) {
+            const id = docx.selected;
+            if (command === 'rename') void docx.rename();
+            else if (command === 'sibling') void docx.insert(id, 'after');
+            else if (command === 'child') void docx.insert(id, 'child');
+            else if (command === 'promote' || command === 'demote') void docx.execute({ type: 'level', id, delta: command === 'promote' ? -1 : 1 });
+            else if (command === 'delete') void docx.remove();
+            else if (command === 'undo' || command === 'redo') void docx.history(command);
+            else if (command === 'editor') { this.editorVisible = true; this.applySplit(); docx.focusBody(); }
+            return;
+        }
         const writing = this.writing; if (!writing?.active) return;
         if (command === 'rename' || command === 'sibling' || command === 'child') void writing.inline(command);
         else if (command === 'undo' || command === 'redo') void writing.history(command);
@@ -271,6 +300,29 @@ export class OrganicMindMapView extends ItemView {
     }
     async toggleWriting(): Promise<void> {
         if (this.switchingMode || !this.file || !this.documentHost) return;
+        if (this.file.extension === 'pdf') { new Notice('PDF 为只读格式。'); return; }
+        if (this.file.extension === 'docx') {
+            if (this.docxWriting) {
+                if (!await this.docxWriting.flush()) return;
+                this.docxWriting.active = !this.docxWriting.active;
+                this.contentEl.classList.toggle('is-writing', this.docxWriting.active);
+                this.applySplit(); this.draw(); this.remember();
+                this.modeButton?.setAttribute('aria-pressed', String(this.docxWriting.active));
+                this.viewModeButton?.setAttribute('aria-pressed', String(!this.docxWriting.active));
+                return;
+            }
+            try {
+                const data = await this.app.vault.readBinary(this.file);
+                this.ensureSplit();
+                this.docxWriting = new DocxWritingController(this.app, new DocxEditor(this.app, this.file, data), this.svg, this.editorPane!,
+                    (model, selected) => this.publishDocx(model, selected));
+                await this.docxWriting.select(this.state.selectedNode ?? 'document');
+                this.contentEl.addClass('is-writing'); this.applySplit();
+                this.modeButton?.setAttribute('aria-pressed', 'true'); this.viewModeButton?.setAttribute('aria-pressed', 'false');
+                this.remember();
+            } catch (error) { new Notice(error instanceof Error ? error.message : String(error)); }
+            return;
+        }
         this.switchingMode = true;
         try {
             if (this.writing) {
@@ -362,6 +414,23 @@ export class OrganicMindMapView extends ItemView {
         if (!this.readerPane || !this.readerVisible || this.isWriting || !this.model) return;
         const node = this.model.nodes.find(n => n.id === this.state.selectedNode) ?? this.model.nodes.find(n => n.id === this.model!.rootId)!;
         const doc = this.writing?.document ?? this.readerDocument;
+        if (!doc && !this.external) return;
+        if (this.external) {
+            const key = JSON.stringify([this.external.fingerprint, node.id]);
+            if (key === this.readerKey) return;
+            this.readerKey = key; this.readerPane.empty(); this.readerPane.scrollTop = 0;
+            this.readerPane.createEl('h2', { text: node.title });
+            this.readerPane.createEl('p', { text: node.content || '此章节没有可提取的正文。' });
+            if (node.children.length) {
+                const list = this.readerPane.createEl('ul');
+                for (const id of node.children) {
+                    const child = this.model.nodes.find(item => item.id === id); if (!child) continue;
+                    const button = list.createEl('li').createEl('button', { text: child.title, cls: 'cmm-reader-child' });
+                    button.onclick = () => { void this.selectHeading(id); };
+                }
+            }
+            return;
+        }
         if (!doc) return;
         const key = JSON.stringify([doc.sourcePath, doc.text, node.id]);
         if (key === this.readerKey) return;
@@ -389,7 +458,32 @@ export class OrganicMindMapView extends ItemView {
     }
     private async selectHeading(id: string): Promise<void> {
         if (this.writing) { await this.writing.select(id); return; }
+        if (this.docxWriting?.active) { await this.docxWriting.select(id); return; }
         this.state.selectedNode = id; this.draw(); this.remember();
+    }
+    private publishDocx(model: MindMapModel, selected: string): void {
+        const previous = this.model;
+        if (previous) {
+            const oldCounts = new Map<string, number>(), newCounts = new Map<string, number>();
+            for (const node of previous.nodes) oldCounts.set(node.title, (oldCounts.get(node.title) ?? 0) + 1);
+            for (const node of model.nodes) newCounts.set(node.title, (newCounts.get(node.title) ?? 0) + 1);
+            const nextByTitle = new Map(model.nodes.map(node => [node.title, node.id]));
+            const remap = new Map<string, string>([['document', 'document']]);
+            for (const node of previous.nodes) if (oldCounts.get(node.title) === 1 && newCounts.get(node.title) === 1)
+                remap.set(node.id, nextByTitle.get(node.title)!);
+            const map = (id: string | null) => id ? remap.get(id) ?? null : null;
+            this.collapsed = new Set([...this.collapsed].map(id => remap.get(id)).filter((id): id is string => !!id));
+            this.state.focusNode = map(this.state.focusNode);
+            this.state.reading = { rootNode: map(this.state.reading.rootNode), currentNode: map(this.state.reading.currentNode) };
+            this.state.branchStyles = Object.fromEntries(Object.entries(this.state.branchStyles)
+                .filter(([id]) => remap.has(id)).map(([id, style]) => [remap.get(id)!, style]));
+        }
+        this.model = model;
+        this.external = { format: 'docx', model, text: '', fingerprint: binaryFingerprint(this.docxWriting!.source.raw) };
+        this.state.selectedNode = selected; this.layoutEpoch++; this.readerKey = '';
+        this.interaction.update(model); this.draw(selected);
+        this.status.textContent = `${this.file?.basename ?? 'DOCX'} · ${model.nodes.length} 个节点 · Organic Edit`;
+        this.remember();
     }
     private publishWriting(doc: DocumentStructure, selected: string, structureChanged: boolean): void {
         const anchor = this.state.selectedNode ?? undefined;
@@ -478,6 +572,7 @@ export class OrganicMindMapView extends ItemView {
     }
     private contextMenu(id: string, event: MouseEvent): void {
         if (this.writing?.active) { this.writing.menu(id, event); return; }
+        if (this.docxWriting?.active) { this.docxWriting.menu(id, event); return; }
         void this.selectHeading(id);
         const menu = new Menu();
         menu.addItem(item => item.setTitle(t('聚焦当前分支')).onClick(() => this.focusBranch(id)));
@@ -488,6 +583,11 @@ export class OrganicMindMapView extends ItemView {
 
     async loadSource(file: TFile, reset = true): Promise<void> {
         if (this.writing && file.path === this.writing.document.sourcePath) { await this.writing.externalChange(); return; }
+        if (this.docxWriting && file.path === this.sourcePath && this.docxWriting.active) return;
+        if (this.docxWriting) {
+            if (!await this.docxWriting.close()) return;
+            this.docxWriting = undefined; this.editorPane?.empty();
+        }
         if (this.writing) {
             await this.writing.close(); this.writing = undefined;
             this.contentEl.append(this.svg); this.writingLayout?.remove(); this.writingLayout = undefined; this.editorPane = undefined; this.readerPane = undefined; this.readerKey = '';
@@ -496,6 +596,26 @@ export class OrganicMindMapView extends ItemView {
         }
         const revision = ++this.revision;
         try {
+            if (file.extension === 'docx' || file.extension === 'pdf') {
+                const document = await readSourceDocument(this.app, file);
+                if (this.closed || revision !== this.revision) return;
+                const saved = reset ? this.store?.get(file.path) : undefined;
+                const changed = !reset && this.fingerprint !== document.fingerprint;
+                this.file = file; this.sourcePath = file.path; this.external = document;
+                this.model = document.model; this.sourceText = ''; this.readerDocument = undefined;
+                this.fingerprint = document.fingerprint; this.identities = [];
+                this.layoutEpoch++; this.readerKey = '';
+                if (reset) {
+                    this.state.reset(document.model, this.settings().defaultLayout);
+                    if (saved && saved.fingerprint === document.fingerprint) this.state.restore(saved, document.model);
+                } else if (changed) this.state.reset(document.model, this.state.layout);
+                this.interaction.update(document.model); this.draw(); this.updateReader();
+                if (reset) this.fit();
+                this.status.textContent = `${file.basename} · ${document.model.nodes.length} 个节点${file.extension === 'pdf' ? ' · 只读' : ''}`;
+                if (reset && saved?.writing?.enabled && file.extension === 'docx') await this.toggleWriting();
+                return;
+            }
+            this.external = undefined;
             const markdown = await this.app.vault.read(file);
             if (this.closed || revision !== this.revision) return;
             const fingerprint = sourceFingerprint(markdown);
@@ -547,7 +667,12 @@ export class OrganicMindMapView extends ItemView {
             }
         } catch (error) {
             if (revision !== this.revision || this.closed) return;
-            new Notice(t('无法读取原笔记，请确认文件仍然存在。'));
+            const message = error instanceof Error ? error.message : t('无法读取原笔记，请确认文件仍然存在。');
+            this.file = file; this.sourcePath = file.path; this.model = undefined; this.external = undefined;
+            this.readerDocument = undefined; this.result = undefined; this.readerKey = '';
+            this.scene?.replaceChildren(); this.readerPane?.empty();
+            if (this.status) this.status.textContent = message;
+            new Notice(message);
             console.error('Organic mind map: source load failed', error);
         }
     }
@@ -601,8 +726,18 @@ export class OrganicMindMapView extends ItemView {
     private async navigate(id: string, sourceOnly = false): Promise<void> {
         if (!sourceOnly && !this.isWriting && this.readerVisible) { await this.selectHeading(id); return; }
         if (this.writing?.active) { await this.writing.select(id); return; }
+        if (this.docxWriting?.active) { await this.docxWriting.select(id); return; }
         const node = this.model?.nodes.find(n => n.id === id), file = this.file;
         if (!node || !file) return;
+        if (file.extension === 'docx' || file.extension === 'pdf') {
+            this.state.selectedNode = id; this.draw(); this.remember();
+            if (!this.readerVisible && !sourceOnly) { this.readerVisible = true; this.applySplit(); return; }
+            if (sourceOnly) {
+                if (file.extension === 'pdf') await this.app.workspace.openLinkText(`${file.path}#page=${node.source.line}`, file.path, 'split');
+                else await this.app.workspace.getLeaf('split').openFile(file, { active: true });
+            }
+            return;
+        }
         this.state.selectedNode = id; this.remember();
         this.scene.querySelectorAll?.('[data-node-id]').forEach(el => el.classList.toggle('is-selected', el.getAttribute('data-node-id') === id));
         const revision = this.revision, snapshot = this.sourceText;
@@ -642,6 +777,7 @@ export class OrganicMindMapView extends ItemView {
     }
     async onClose(): Promise<void> {
         await this.writing?.close(); this.writing = undefined;
+        await this.docxWriting?.close(); this.docxWriting = undefined;
         this.readerComponent?.unload(); this.readerComponent = undefined;
         this.closed = true; this.revision++; this.autoRefresh?.close(); this.viewport.cancel(); this.renderer.close?.();
         if (this.transformFrame !== undefined) this.contentEl.ownerDocument?.defaultView?.cancelAnimationFrame(this.transformFrame);

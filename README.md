@@ -8,7 +8,7 @@
 
 **Think in a mind map, create a Markdown note, and keep writing.**
 
-Canvas Mind Map offers three workspaces: **Native Canvas** for native cards, **Organic** for existing Markdown, and **Composer** for creating a new document from a blank mind map. Organic and Composer share the curved-branch renderer and layouts, but save to different sources.
+Canvas Mind Map offers three workspaces: **Native Canvas** for native cards, **Organic** for existing Markdown, DOCX, and PDF files, and **Composer** for creating a new document from a blank mind map. Organic and Composer share the curved-branch renderer and layouts, but save to different sources.
 
 Available in the **Obsidian Community Plugins directory**. [Open the plugin page](https://obsidian.md/plugins?id=canvas-mind-map) · [Download releases](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
 
@@ -18,8 +18,8 @@ This README describes the current source, including Composer's thinking and writ
 
 | Mode | Source and saving | Purpose | Entry point |
 | --- | --- | --- | --- |
-| Native Canvas | Native Canvas nodes and edges | Seven layouts, movable cards and native Canvas interaction | Generate a mind map from a Canvas note/text card |
-| Organic | An existing `.md` file; **Edit** writes to that file | **View** reads/navigates; **Edit** changes headings and direct section bodies | Right-click a Markdown file → **Open note in Organic mode**, or run that command |
+| Native Canvas | Native Canvas nodes and edges | Seven layouts, movable cards and native Canvas interaction | Generate a mind map from a Canvas Markdown, DOCX, PDF, or text card |
+| Organic | An existing `.md`, `.docx`, or `.pdf` file | **View** reads/navigates all three; **Edit** writes to Markdown or DOCX | Right-click a supported file → **Open note in Organic mode**, or run that command |
 | Composer | A plugin draft; no `.md` file until **Create Note** | Start blank or from a template, collect ideas, organize and write | Ribbon / command **New Mind Map Document**, or folder menu **New Mind Map Document here** |
 
 For a new document, start with [Composer](#composer--new-mind-map-document). For an existing note, use [Organic Edit](#edit--mind-map-writing). For movable cards, follow [Native Canvas Quick Start](#native-canvas-quick-start). **View / Edit** are states inside Organic; Native's **title / body** choices control card content, not the workspace mode.
@@ -27,6 +27,12 @@ For a new document, start with [Composer](#composer--new-mind-map-document). For
 ```text
 New Mind Map Document → Composer draft → Create Note → Organic Edit ⇄ View
 ```
+
+### Word and PDF sources
+
+DOCX headings come from paragraph heading styles or outline levels. Organic Edit writes heading changes, section moves, additions, deletions, and plain-text direct bodies back to the original `.docx`. Direct bodies containing tables, images, fields, tracked changes, or rich formatting are read-only; moving a chapter retains its underlying Word blocks. DOCX undo/redo applies to the current editing session. Native Canvas generates and refreshes cards from DOCX but does not change the document.
+
+PDF uses its bookmarks as the mind-map structure and extracts selectable page text for reading. Without bookmarks, the map has one document node. Scanned or protected PDFs that do not expose text cannot be mapped. PDF remains read-only in both modes. Legacy `.doc` and OCR are not supported.
 
 ### Organic reading and navigation
 
@@ -48,8 +54,8 @@ Folding, zoom, viewport center, Focus, Reading position, selection and layout ar
 
 1. Use **New Mind Map Document** in the ribbon or command palette. A folder's **New Mind Map Document here** action remembers that folder for the first note creation.
 2. Rename **Untitled** with F2 / double-click. This is the document name, not automatically a Markdown H1 or a file.
-3. Press Enter to add a section, type its title, then Enter to start the next sibling or Tab to start a child. Esc cancels the unfinished node. Enter after F2 confirms the rename without adding another node.
-4. Select a node and write its **direct body** in the right panel. The root body is the document introduction. **Body: auto / show / hide** controls visibility; drag the divider to resize it.
+3. Select a node and press Enter for a sibling, Tab for a child, or click the `+` shown on hover/focus. Type **inside the node**. Enter confirms without creating another node; press Enter again to start the next sibling. Tab while editing confirms and starts a child. Esc cancels the rename or the unfinished new node. Double-click / F2 edits an existing title in place.
+4. Selection shows a one-line **direct body** preview at the bottom of the canvas. Click it (or **Add body…**) or press Ctrl/Cmd+Enter to open the right editor. The root body is the introduction. The editor stays closed until requested; **View → Body: Auto / Show / Hide**, Pin and the divider remain available.
 5. Choose **Create Note**, review the export options and Markdown preview, then create the file. The current tab becomes **Organic Edit**.
 
 The root suggests a filename, which can be changed independently in the create dialog. **Document name only** exports children as H1; **Use root as H1** exports the root as H1 and children as H2. Structural operations and root-behavior changes validate the complete subtree against H6. Create section headings as map nodes, rather than placing headings in a heading node's body.
@@ -57,10 +63,21 @@ The root suggests a filename, which can be changed independently in the create d
 ### Organize ideas
 
 - **Ctrl/Cmd+click** adds/removes a selection; **Shift+click** selects a visible range. Body editing applies to the primary selected node. Type changes apply to all selected non-root nodes.
-- Right-click → **Create → Create parent from selection** groups sibling nodes under a new heading. The nodes keep their order, bodies, metadata and descendants.
-- Drag one or several selected branches to **Before / Make child / After**. The preview rejects cycles and excessive depth before committing. Keyboard promote/demote/reorder works on consecutive selected siblings; batch deletion can remove branches or retain children. Each operation is undoable as a single action.
-- Open **Unsorted Ideas** to capture ideas outside the document tree. Use **Add idea**, **Move selection here**, drag between the drawer and map, or use **Structure → Move to document root / Move to Unsorted Ideas**.
-- Choose **Heading / Idea / Todo** in the body panel or node menu. Idea nodes have a `?` prefix and dashed outline; Todo nodes have a checkbox indicator and **Mark complete / incomplete** action.
+- Right-click → **Create parent from selection** groups siblings and edits the new parent inline. **Duplicate** copies selected branches with fresh IDs. Both preserve bodies, metadata and descendants.
+- Drag a node to move its **complete subtree**, or drag a multi-selection as a batch. The top/bottom of a target inserts **before/after** with an insertion line; its middle makes the branch a **child**, highlighted on the target. There is no three-choice popup. A larger exit region and boundary tolerance prevent small pointer movements from losing the target. Cycles, moving the root and excessive heading depth are rejected.
+- Drag to the canvas edge to pan or the Inbox edge to scroll. Esc cancels a drag. Existing promote/demote/reorder shortcuts remain; batch deletion still offers the keep-children choice. Each completed structural action is one undo step.
+- The selected-node toolbar contains only `…`. Focus, node types, duplication and advanced branch actions live in the context menu; document properties, templates and export tools live in the global `…`. Redundant Add / Move menu entries have been removed.
+- **Node type → Heading / Idea / Todo** remains an advanced option. Idea nodes retain a `?` prefix; Todo nodes retain clickable completion checkboxes. Newly created map nodes are headings.
+
+### Ideas Inbox
+
+Open **Ideas** for a docked Inbox that reduces the canvas width instead of covering the map. Toggling it preserves selection and zoom; the selected node stays at its screen position when space permits, with only the minimum pan needed to keep it visible. A narrow window keeps the panels side by side and allows horizontal scrolling.
+
+- Type in **Capture an idea…** and press Enter to create a card and keep typing. Each card can hold a body and shows a one-line preview. Double-click / F2 renames its title inline.
+- Pasting multiple lines reveals **As one idea** (first line is the title; remaining lines are the body) and **Split into lines** (one card per non-empty line). Batch creation is a single undo step.
+- Search titles and bodies, Ctrl/Cmd-click or Shift-click to select cards, and drag to reorder. Card-to-card drag only sorts; it does not introduce new nesting. Parked subtrees show a descendant count and can be expanded for inspection.
+- Drag a map branch into the Inbox to set it aside, retaining its type, descendants, body and metadata. Hover over the closed Ideas entry during a drag to open it.
+- **Dragging an Inbox branch into the map adopts it:** every Idea in that branch becomes a Heading; existing headings and Todo completion states stay intact. Moving and adopting undo together. The advanced Idea type remains available through the node menu.
 
 ### Find and focus
 
@@ -70,7 +87,7 @@ The root suggests a filename, which can be changed independently in the create d
 
 Use **New Composer from template** in the command palette, or **⋯ → New from template**, for Blank, Essay, Project Plan, Meeting Notes, Research Notes or Course Notes. Each opens a new draft. **⋯ → Duplicate draft** makes an independent copy, including bodies, types, properties and unsorted ideas.
 
-**⋯ → Document properties** edits YAML frontmatter without `---` delimiters. It must be a YAML mapping; valid properties are placed before the introduction. **⋯ → Copy outline** copies a Markdown bullet outline, including Todo checkboxes and an Unsorted Ideas group. The status line shows section, idea, Todo, unsorted-node and word/character counts plus draft save status.
+**⋯ → Document properties** edits YAML frontmatter without `---` delimiters. It must be a YAML mapping; valid properties are placed before the introduction. **⋯ → Copy outline** copies a Markdown bullet outline, including Todo checkboxes and an Unsorted Ideas group. **⋯ → Document Info** shows counts; the status line stays focused on draft saving.
 
 ### Export and saving
 
@@ -93,7 +110,9 @@ Excluding an Idea excludes its whole branch. Whenever any content is excluded, t
 | Key / gesture | Action |
 | --- | --- |
 | F2 / double-click | Rename the document or node |
-| Enter / Tab | Add sibling / child; continue creating while typing a new node |
+| Enter / Tab (node selected) | Add sibling / child |
+| Enter / Tab (title editing) | Confirm only / confirm and start a child |
+| Esc (title editing / dragging) | Cancel the current title edit or drag |
 | Shift+Tab / Alt+← | Promote |
 | Alt+→ | Demote below the preceding sibling |
 | Alt+↑ / Alt+↓ | Reorder siblings |
@@ -105,6 +124,8 @@ Excluding an Idea excludes its whole branch. Whenever any content is excluded, t
 | Background drag / wheel / `+` / `-` / `0` | Pan / zoom / zoom / fit |
 
 Horizontal, Radial and Compact reuse Organic's layout and renderer. Composer remembers its layout and panel width defaults independently of Organic.
+
+Composer, Inbox, draft management, templates and Create Note follow the plugin's **Automatic / English / 简体中文** language setting. Open Composer views update when the setting changes; command-palette names update after reloading the plugin. Existing titles and bodies are never translated. Draft schema version 1 remains compatible; unfinished inline titles are not autosaved until committed.
 
 The current Composer remains a document tree. The proposed v2 features—non-tree relationships, shared ideas and free-form knowledge mapping—are not implemented.
 
@@ -232,7 +253,7 @@ npm run build
 
 The production build checks TypeScript and generates `main.js`. Copy it with `manifest.json` and `styles.css` into your vault's plugin directory. For development, `npm run dev` rebuilds on source changes; stop it with Ctrl+C.
 
-Run `npm test` for the Native, Organic and Composer model regressions. `npm run test:composer-browser` exercises Composer interactions and the Organic handoff in a headless browser with simulated Obsidian APIs. Set `CMM_PLAYWRIGHT` to a Playwright module path and `CMM_BROWSER` to a Chromium/Edge executable when using a different local test setup. These tests do not replace checking a real vault.
+Run `npm test` for the Native, Organic and Composer model regressions. `npm run test:composer-browser` exercises Composer interactions and the Organic handoff in a headless browser with simulated Obsidian APIs, including inline editing, the docked Inbox, before/child/after hit testing, hysteresis, subtree adoption and bilingual dialogs. Set `CMM_PLAYWRIGHT` to a Playwright module path and `CMM_BROWSER` to a Chromium/Edge executable when using a different local test setup. These tests do not replace checking a real vault.
 
 ## Feedback
 

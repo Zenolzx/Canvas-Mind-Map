@@ -1,6 +1,7 @@
 import type { MindMapModel, MindMapNode } from '../core/MindMapModel';
 import type { OrganicLayoutStyle } from '../organic/OrganicViewState';
 import { DocumentStructureParser } from '../document';
+import { ct } from '../i18n';
 
 export interface ComposerNode {
     id: string; title: string; body: string; children: ComposerNode[];
@@ -15,11 +16,11 @@ export interface ComposerDraft {
     unsorted?: ComposerNode[]; selections?: string[]; focusNode?: string | null; frontmatter?: string;
 }
 export const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-export function newNode(title = 'New idea', type: ComposerNode['type'] = 'heading'): ComposerNode {
+export function newNode(title = ct('New idea'), type: ComposerNode['type'] = 'heading'): ComposerNode {
     return { id: `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, title, body: '', children: [], type, collapsed: false, metadata: {} };
 }
 export function newDraft(targetFolder = ''): ComposerDraft {
-    const root = newNode('Untitled');
+    const root = newNode(ct('Untitled'));
     return { schemaVersion: 1, draftId: `draft-${root.id}`, root, rootAsHeading: false, targetFolder,
         createdAt: Date.now(), updatedAt: Date.now(), layout: 'organic-horizontal', selection: root.id, panel: 'auto', panelWidth: .35 };
 }
@@ -71,7 +72,7 @@ export function validate(draft: ComposerDraft, exporting = false): void {
 }
 export function projectDraft(draft: ComposerDraft): MindMapModel {
     const nodes: MindMapNode[] = entries(draft).map(({ node, parent, depth }) => ({ id: node.id, key: node.id,
-        title: `${node.type === 'idea' ? '? ' : node.type === 'todo' ? node.checked ? '☑ ' : '☐ ' : ''}${node.title || 'New idea'}`, content: node.body, headingLevel: depth + Number(draft.rootAsHeading), depth,
+        title: `${node.type === 'idea' ? '? ' : node.type === 'todo' ? node.checked ? '☑ ' : '☐ ' : ''}${node.title || ct('New idea')}`, content: node.body, headingLevel: depth + Number(draft.rootAsHeading), depth,
         parentId: parent?.id, children: node.children.map(n => n.id), source: { line: 0, endLine: 0 } }));
     return { rootId: draft.root.id, nodes };
 }

@@ -1,4 +1,5 @@
 import { clone, ComposerDraft, ComposerNode, entries, moveNodes, newDraft, newNode, projectDraft, selectedRoots, siblingsOf } from './ComposerModel';
+import { ct } from '../i18n';
 
 export const COMPOSER_TEMPLATES: Record<string, { title: string; sections: string[] }> = {
     blank: { title: 'Untitled', sections: [] },
@@ -10,8 +11,8 @@ export const COMPOSER_TEMPLATES: Record<string, { title: string; sections: strin
 };
 export function fromTemplate(key: string, folder = ''): ComposerDraft {
     const template = COMPOSER_TEMPLATES[key]; if (!template) throw new Error('Unknown template.');
-    const draft = newDraft(folder); draft.root.title = template.title;
-    draft.root.children = template.sections.map(title => newNode(title)); return draft;
+    const draft = newDraft(folder); draft.root.title = ct(template.title);
+    draft.root.children = template.sections.map(title => newNode(ct(title))); return draft;
 }
 export function duplicateDraft(source: ComposerDraft): ComposerDraft {
     const draft = clone(source), ids = new Map<string, string>();
@@ -19,7 +20,7 @@ export function duplicateDraft(source: ComposerDraft): ComposerDraft {
     for (const { node } of entries(draft, true)) { const id = newNode().id; ids.set(node.id, id); node.id = id; }
     draft.selection = ids.get(draft.selection) ?? draft.root.id;
     draft.selections = (draft.selections ?? []).map(id => ids.get(id)!).filter(Boolean);
-    draft.focusNode = ids.get(draft.focusNode ?? '') ?? null; draft.root.title += ' (copy)'; return draft;
+    draft.focusNode = ids.get(draft.focusNode ?? '') ?? null; draft.root.title += ct(' (copy)'); return draft;
 }
 export function organizeSelection(draft: ComposerDraft, ids: string[], action: 'promote' | 'demote' | 'up' | 'down'): void {
     const roots = selectedRoots(draft, ids); if (!roots.length) return;
@@ -80,6 +81,6 @@ export function outlineMarkdown(draft: ComposerDraft): string {
         node.children.forEach(child => visit(child, depth + 1));
     };
     draft.root.children.forEach(node => visit(node, 0));
-    if (draft.unsorted?.length) { lines.push('- Unsorted Ideas'); draft.unsorted.forEach(node => visit(node, 1)); }
+    if (draft.unsorted?.length) { lines.push(`- ${ct('Unsorted Ideas')}`); draft.unsorted.forEach(node => visit(node, 1)); }
     return lines.join('\n') + (lines.length ? '\n' : '');
 }

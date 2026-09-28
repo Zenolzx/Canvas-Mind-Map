@@ -8,8 +8,9 @@ import { LAYOUT_LABEL_KEYS, MindmapSettings, normalizeOrganicSettings } from './
 import { PluginDataStore } from './src/PluginDataStore';
 import { OrganicStateStore } from './src/organic/OrganicStateStore';
 import { renderOrganicSettings } from './src/organic/OrganicSettings';
-import { setLanguage, t } from './src/i18n';
+import { setLanguage, t, ct } from './src/i18n';
 import { ORGANIC_VIEW, OrganicMindMapView } from './src/organic/OrganicMindMapView';
+import { supportedSource } from './src/formats/SourceFormats';
 import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
 
 export default class CanvasMindMapPlugin extends Plugin {
@@ -58,19 +59,19 @@ export default class CanvasMindMapPlugin extends Plugin {
             await leaf.setViewState({ type: COMPOSER_VIEW, active: true, state: { draftId, targetFolder } });
             (leaf.view as ComposerView).focusMap();
         };
-        this.addRibbonIcon('file-plus-2', 'New Mind Map Document', () => { void openComposer(); });
-        this.addCommand({ id: 'new-mind-map-document', name: 'New Mind Map Document', callback: () => { void openComposer(); } });
-        this.addCommand({ id: 'restore-composer-draft', name: 'Restore Composer Draft', callback: () => showDrafts(this.app, this.composerDrafts, id => openComposer(id)) });
-        this.addCommand({ id: 'composer-from-template', name: 'New Composer from template', callback: () => showTemplates(this.app, draft => {
+        this.addRibbonIcon('file-plus-2', ct('New Mind Map Document'), () => { void openComposer(); });
+        this.addCommand({ id: 'new-mind-map-document', name: ct('New Mind Map Document'), callback: () => { void openComposer(); } });
+        this.addCommand({ id: 'restore-composer-draft', name: ct('Restore Composer Draft'), callback: () => showDrafts(this.app, this.composerDrafts, id => openComposer(id)) });
+        this.addCommand({ id: 'composer-from-template', name: ct('New Composer from template'), callback: () => showTemplates(this.app, draft => {
             this.composerDrafts.put({ ...draft, ...this.composerDrafts.preferences });
             void this.composerDrafts.flush().then(() => openComposer(draft.draftId)).catch(error => new Notice(String(error)));
         }) });
-        this.addCommand({ id: 'search-composer', name: 'Composer: Search', checkCallback: checking => {
+        this.addCommand({ id: 'search-composer', name: ct('Composer: Search'), checkCallback: checking => {
             const view = this.app.workspace.getActiveViewOfType(ComposerView); if (!view) return false;
             if (!checking) view.openSearch(); return true;
         } });
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
-            if (file instanceof TFolder) menu.addItem(item => item.setTitle('New Mind Map Document here').setIcon('file-plus-2').onClick(() => openComposer(undefined, file.path)));
+            if (file instanceof TFolder) menu.addItem(item => item.setTitle(ct('New Mind Map Document here')).setIcon('file-plus-2').onClick(() => openComposer(undefined, file.path)));
         }));
         this.register(() => { void this.composerDrafts.flush().catch(console.error); });
         this.addCommand({ id: 'toggle-mind-map-writing', name: 'Organic: Toggle Mind Map Writing', checkCallback: checking => {
@@ -94,13 +95,13 @@ export default class CanvasMindMapPlugin extends Plugin {
         this.addCommand({ id: 'open-organic-mind-map', name: t('以 Organic 模式打开笔记'),
             checkCallback: checking => {
                 const file = this.app.workspace.getActiveFile();
-                if (file?.extension !== 'md') return false;
+                if (!file || !supportedSource(file)) return false;
                 if (!checking) void this.openOrganic(file);
                 return true;
             },
         });
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file) => {
-            if (file instanceof TFile && file.extension === 'md') menu.addItem(item => item
+            if (file instanceof TFile && supportedSource(file)) menu.addItem(item => item
                 .setTitle(t('以 Organic 模式打开笔记')).setIcon('git-fork').onClick(() => this.openOrganic(file)));
         }));
         this.mindmap = new CanvasMindmap(this);
@@ -152,6 +153,9 @@ export default class CanvasMindMapPlugin extends Plugin {
     refreshLanguage(): void {
         setLanguage(this.settings.language, moment.locale());
         this.mindmap.refreshLanguage();
+        for (const leaf of this.app.workspace.getLeavesOfType(COMPOSER_VIEW)) {
+            if (leaf.view instanceof ComposerView) void leaf.view.refreshLanguage();
+        }
     }
 }
 

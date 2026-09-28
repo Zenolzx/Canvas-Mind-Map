@@ -67,8 +67,8 @@ function normalize(value: unknown): SavedOrganicState | undefined {
         Number.isFinite(n.level) && Number.isFinite(n.line)) : undefined;
     const branchStyles: Record<string, { color: string; side: number }> = Object.create(null);
     const snapshot = normalizeWritingSnapshot(s.writing?.snapshot);
-    const writing = snapshot ? { enabled: s.writing?.enabled === true, editorVisible: s.writing?.editorVisible !== false,
-        splitRatio: Number.isFinite(s.writing?.splitRatio) ? Math.max(.25, Math.min(.8, s.writing!.splitRatio)) : .6, snapshot } : undefined;
+    const writing = s.writing ? { enabled: s.writing.enabled === true, editorVisible: s.writing.editorVisible !== false,
+        splitRatio: Number.isFinite(s.writing.splitRatio) ? Math.max(.25, Math.min(.8, s.writing.splitRatio)) : .6, snapshot } : undefined;
     if (s.branchStyles && typeof s.branchStyles === 'object') for (const [id, style] of Object.entries(s.branchStyles)) {
         if (style && /^#[\da-f]{6}$/i.test(style.color) && (style.side === 0 || style.side === 1)) branchStyles[id] = style;
     }

@@ -15,7 +15,7 @@ export interface SavedOrganicState {
     selectedNode: string | null;
     layout: OrganicLayoutStyle;
     branchStyles?: Record<string, { color: string; side: number }>;
-    writing?: { enabled: boolean; splitRatio: number; editorVisible: boolean; snapshot: WritingViewSnapshot };
+    writing?: { enabled: boolean; splitRatio: number; editorVisible: boolean; snapshot?: WritingViewSnapshot };
 }
 
 /** Runtime document IDs are accepted only with an identical source fingerprint in phase 1. */

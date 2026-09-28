@@ -13,6 +13,11 @@ node_modules/
 /tmp/
 .cache/
 
+# Local video production and installed agent skill assets
+/promo-video/
+/.agents/
+/skills-lock.json
+
 # Obsidian local settings and vault state
 /data.json
 .obsidian/

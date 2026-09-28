@@ -19,6 +19,8 @@ exports.Menu=class {
 };
 `);
 const source=`
+import {setLanguage} from './src/i18n';
+setLanguage(new URLSearchParams(location.search).get('lang')==='zh-CN'?'zh-CN':'en');
 import {ComposerView} from './src/composer/ComposerView';
 import {ComposerStore} from './src/composer/ComposerStore';
 import {fromTemplate} from './src/composer/ComposerTools';
@@ -43,7 +45,7 @@ const app={scope:{},vault:{on(){},getAbstractFileByPath:p=>files.get(p),read:asy
 const host=new ObsidianDocumentHost(app);
 const leaf={app,setViewState:async state=>{await view.onClose();view.contentEl.remove();const organic=new OrganicMindMapView(leaf,undefined,()=>({animation:false,autoRefresh:false}),host);leaf.view=organic;await organic.onOpen();await organic.setState(state.state,{history:false});handoff=state;},detach(){}};
 const view=new ComposerView(leaf,store);
-(async()=>{await view.onOpen();await view.setState({targetFolder:'Projects'},{history:false});view.focusMap();window.composerTest={view,store,files,contents,getDisk:()=>disk,getWrites:()=>writes,getCreated:()=>created,getHandoff:()=>handoff,setFail:v=>{fail=v;},seedFile:(path,text)=>{files.set(path,new TFile(path));contents.set(path,text);},seedTemplate:async key=>{const draft=fromTemplate(key,'Projects');store.put(draft);await view.setState({draftId:draft.draftId},{history:false});view.focusMap();}};window.ready=true;})();
+(async()=>{await view.onOpen();await view.setState({targetFolder:'Projects'},{history:false});view.focusMap();window.composerTest={view,store,files,contents,setLanguage:async language=>{setLanguage(language);await view.refreshLanguage();},getDisk:()=>disk,getWrites:()=>writes,getCreated:()=>created,getHandoff:()=>handoff,setFail:v=>{fail=v;},seedFile:(path,text)=>{files.set(path,new TFile(path));contents.set(path,text);},seedTemplate:async key=>{const draft=fromTemplate(key,'Projects');store.put(draft);await view.setState({draftId:draft.draftId},{history:false});view.focusMap();}};window.ready=true;})();
 `;
 esbuild.buildSync({stdin:{contents:source,resolveDir:process.cwd(),loader:'ts'},bundle:true,format:'iife',platform:'browser',target:'chrome110',alias:{obsidian:path.join(dir,'obsidian.cjs'),'@codemirror/state':path.resolve('node_modules/@codemirror/state/dist/index.js')},outfile:path.join(dir,'test.js')});
 fs.writeFileSync(path.join(dir,'index.html'),`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:14px Arial;background:#fffaf4;--background-primary:#fffaf4;--background-secondary:#f4eee5;--background-modifier-border:#ddd;--text-normal:#333;--text-muted:#777;--text-faint:#888;--text-on-accent:white;--text-accent:#287e83;--font-interface:Arial;--background-modifier-hover:#e8e3dd;--shadow-s:0 3px 12px #0001;--shadow-l:0 8px 32px #0002;--interactive-accent:#287e83;--text-error:#b33}.test-modal{position:fixed;inset:8% 15%;z-index:99;background:white;border:1px solid;padding:24px;overflow:auto}.test-menu{position:fixed;right:20px;top:50px;z-index:100;background:white;padding:8px;border:1px solid #ddd}.test-menu button{display:block;width:100%;text-align:left}button{cursor:pointer}${fs.readFileSync('styles.css','utf8')}</style></head><body><script src="test.js"></script></body></html>`);

@@ -33,7 +33,7 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.getByRole('button',{name:'Search',exact:true}).click();assert.equal((await state()).root.title,'Blur saved');
   await page.getByRole('searchbox').press('Escape');
   await page.keyboard.press('F2');await page.locator('.cmm-composer-title-input').fill('Operating Systems');await page.keyboard.press('Enter');assert.equal((await state()).root.children.length,0);
-  await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Process');await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Memory');
+  await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Process');await page.keyboard.press('Enter');assert.equal(await page.locator('.cmm-composer-title-input').count(),0);await page.keyboard.press('Enter');await page.locator('.cmm-composer-title-input').fill('Memory');
   await page.locator('.cmm-composer-title-input').evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));
   assert.equal((await state()).root.children.length,2);
   await page.keyboard.press('Tab');await page.locator('.cmm-composer-title-input').fill('Paging');await page.keyboard.press('Enter');await page.keyboard.press('Escape');
@@ -57,7 +57,7 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.evaluate(()=>{const v=window.composerTest.view;v.draft.panel='hide';v.render();v.fit();});
   async function point(title,ratio=.5){return page.evaluate(({title,ratio})=>{const v=window.composerTest.view,n=v.result.nodes.find(n=>n.title===title);const el=Array.from(v.scene.querySelectorAll('[data-node-id]')).find(el=>el.getAttribute('data-node-id')===n.id),r=el.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height*ratio};},{title,ratio});}
   const start=await point('Memory'),end=await point('Process');await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(end.x,end.y,{steps:10});
-  assert.match(await page.locator('.cmm-composer-drop').textContent(),/Make child ◀/);assert.equal((await state()).root.children.length,2);await page.mouse.up();
+  assert.equal(await page.locator('.cmm-composer-drop').getAttribute('data-position'),'child');assert.equal(await page.locator('.is-drop-child').count(),1);assert.equal((await state()).root.children.length,2);await page.mouse.up();
   d=await state();assert.equal(d.root.children[0].children[0].children[0].body,'Paging body.\n\n- Page table');
   await page.evaluate(()=>{const v=window.composerTest.view;v.render();v.fit();});
   const cycleStart=await point('Process'),cycleEnd=await point('Paging');await page.mouse.move(cycleStart.x,cycleStart.y);await page.mouse.down();await page.mouse.move(cycleEnd.x,cycleEnd.y,{steps:10});assert.match(await page.locator('.cmm-composer-drop').textContent(),/itself/);await page.mouse.up();

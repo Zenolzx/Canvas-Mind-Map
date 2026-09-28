@@ -211,8 +211,8 @@
 .cmm-composer { display: flex; flex-direction: column; height: 100%; }
 .cmm-composer-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--background-modifier-border); }
 .cmm-composer-toolbar strong { font-size: 11px; letter-spacing: .12em; color: var(--text-muted); margin-right: auto; }
-.cmm-composer-split { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.cmm-composer-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; }
+.cmm-composer-split { display: flex; flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.cmm-composer-stage { position: relative; flex: 1; min-width: 240px; overflow: hidden; outline: none; padding-bottom: 40px; box-sizing: border-box; }
 .cmm-composer-stage > svg { display: block; touch-action: none; }
 .cmm-composer-body { display: none; flex-shrink: 0; min-width: 0; flex-direction: column; padding: 12px; gap: 12px; background: var(--background-primary); }
 .cmm-composer-body textarea { flex: 1; width: 100%; resize: none; border: 0; background: transparent; line-height: 1.6; }
@@ -222,9 +222,8 @@
 .cmm-composer-breadcrumb { display: flex; flex-wrap: wrap; gap: 4px; }
 .cmm-composer-breadcrumb button { font-size: 12px; height: auto; white-space: normal; }
 .cmm-composer-status { font-size: 12px; color: var(--text-muted); padding: 7px 12px; border-top: 1px solid var(--background-modifier-border); }
-.cmm-composer-title-input { position: absolute; z-index: 3; max-width: calc(100% - 24px); }
-.cmm-composer-drop { position: absolute; pointer-events: none; z-index: 4; white-space: pre-line; padding: 8px 12px; border: 1px solid var(--interactive-accent); border-radius: 6px; background: var(--background-primary); color: var(--text-normal); }
-.cmm-composer-drop.is-invalid { border-color: var(--text-error); color: var(--text-error); }
+.cmm-composer-drop { position: fixed; pointer-events: none; z-index: 20; height: 3px; border-radius: 2px; background: var(--interactive-accent); }
+.cmm-composer-drop.is-invalid { height: auto; max-width: 260px; padding: 5px 8px; background: var(--background-primary); color: var(--text-error); font-size: 12px; }
 .cmm-composer-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .cmm-composer-field[hidden] { display: none; }
 .cmm-composer-recovery { width: 100%; min-height: 240px; }
@@ -232,7 +231,7 @@
 .cmm-composer-search { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--background-modifier-border); }
 .cmm-composer-search[hidden], .cmm-composer-unsorted[hidden], .cmm-composer-markdown-preview[hidden] { display: none; }
 .cmm-composer-search input { flex: 1; min-width: 150px; }
-.cmm-composer-unsorted { width: 220px; flex-shrink: 0; overflow-y: auto; padding: 12px; border-right: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.cmm-composer-unsorted { display: flex; flex-direction: column; width: clamp(180px, 24%, 280px); flex-shrink: 0; min-height: 0; padding: 12px; box-sizing: border-box; background: var(--background-primary); }
 .cmm-composer-unsorted p { font-size: 12px; color: var(--text-muted); }
 .cmm-composer-unsorted > button { margin: 4px 4px 8px 0; }
 .cmm-composer-unsorted-node { margin-top: 6px; border: 1px solid transparent; border-radius: 5px; }
@@ -261,10 +260,10 @@ textarea.cmm-writing-draft-discard { width: 100%; height: 220px; }
 .cmm-composer button:hover { background-color: var(--background-modifier-hover); }
 .cmm-composer .mod-cta { flex-shrink: 0; }
 .cmm-composer-split { position: relative; }
-.cmm-composer-unsorted { position: absolute; inset: 8px auto 8px 8px; z-index: 6; width: min(280px, 80%); box-sizing: border-box; border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-primary); box-shadow: var(--shadow-l); }
+.cmm-composer-unsorted-list { flex: 1; min-height: 60px; overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
 .cmm-composer-ideas-entry { position: absolute; left: 16px; top: 8px; }
-.cmm-composer-context { position: absolute; z-index: 2; display: flex; gap: 2px; padding: 5px; max-width: calc(100% - 16px); flex-wrap: wrap; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); box-shadow: var(--shadow-s); }
-.cmm-composer-context[hidden], .cmm-composer-empty-hint[hidden] { display: none; }
+.cmm-composer-context { position: absolute; z-index: 2; display: flex; padding: 0; border: 0; background: transparent; }
+.cmm-composer-context[hidden], .cmm-composer-empty-hint[hidden], .cmm-composer-ideas-entry[hidden] { display: none; }
 .cmm-composer-empty-hint { position: absolute; transform: translateX(-50%); color: var(--text-faint); font-size: 12px; white-space: nowrap; pointer-events: none; }
 .cmm-composer-key-hint { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); color: var(--text-muted); font-size: 12px; pointer-events: none; }
 .cmm-composer-status { border: 0; color: var(--text-faint); font-size: 11px; padding: 8px 16px; }
@@ -274,10 +273,32 @@ textarea.cmm-writing-draft-discard { width: 100%; height: 220px; }
 .cmm-composer .cmm-organic-hitbox { fill: transparent; rx: 9px; stroke: transparent; }
 .cmm-composer .cmm-organic-node:hover .cmm-organic-hitbox { fill: var(--background-modifier-hover); }
 .cmm-composer .is-selected .cmm-organic-hitbox, .cmm-composer .is-multiselected .cmm-organic-hitbox { stroke: var(--interactive-accent); stroke-width: 1.5px; }
-.cmm-composer-title-input { border-radius: 8px; border: 1px solid var(--interactive-accent); background: var(--background-primary); color: var(--text-normal); min-height: 32px; }
+.cmm-composer textarea.cmm-composer-title-input, .cmm-composer textarea.cmm-composer-idea-input { display: block; position: static; width: 100%; max-width: none; resize: none; overflow: hidden; box-sizing: border-box; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent; color: var(--text-normal); line-height: 1.4; padding: 6px 8px; font-family: var(--font-interface); }
+.cmm-composer textarea.cmm-composer-title-input { text-align: center; }
+.cmm-composer .is-editing .cmm-organic-hitbox { stroke: var(--interactive-accent); }
+.cmm-composer .is-editing .cmm-composer-node-add { visibility: hidden; }
+.cmm-composer-node-add { opacity: 0; pointer-events: none; cursor: pointer; }
+.cmm-organic-node:hover .cmm-composer-node-add, .cmm-organic-node:focus-within .cmm-composer-node-add { opacity: 1; pointer-events: auto; }
+.cmm-composer-node-add rect { fill: var(--background-modifier-hover); }
+.cmm-composer-node-add text { fill: var(--text-muted); font-size: 18px; }
+.cmm-composer-body-preview { position: absolute; bottom: 12px; left: 24px; width: min(360px, calc(100% - 48px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; box-shadow: none; background: var(--background-primary); color: var(--text-muted); font-size: 12px; }
+.cmm-composer-body-preview[hidden], .cmm-composer-paste-options[hidden], .cmm-composer-idea-title[hidden], .cmm-composer-drag-ghost[hidden], .cmm-composer-drop[hidden] { display: none; }
+.cmm-composer-inbox-header { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin-bottom: 4px; }
+.cmm-composer-inbox-header strong { font-size: 13px; font-weight: 600; color: var(--text-normal); }
+.cmm-composer-capture { width: 100%; resize: none; min-height: 40px; max-height: 140px; margin: 8px 0; padding: 10px 8px; font-family: var(--font-interface); font-size: 13px; line-height: 1.5; border: 0; border-bottom: 1px solid var(--background-modifier-border); box-shadow: none; background: transparent; box-sizing: border-box; }
+.cmm-composer-inbox-search { width: 100%; margin-bottom: 8px; border: 0; box-shadow: none; background: transparent; }
+.cmm-composer-paste-options { display: flex; gap: 4px; flex-wrap: wrap; }
+.cmm-composer-idea-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px 6px; font-size: 12px; color: var(--text-muted); }
+.cmm-composer-unsorted-node .cmm-composer-idea-fold { width: auto; font-size: 11px; padding: 2px 8px; color: var(--text-faint); }
+.cmm-composer-unsorted-node.is-selected { background: var(--background-modifier-hover); border-color: transparent; }
+.cmm-composer .is-drop-child .cmm-organic-hitbox, .cmm-composer .cmm-composer-unsorted-node.is-drop-child { fill: var(--background-modifier-hover); stroke: var(--interactive-accent); stroke-width: 3px; }
+.cmm-composer-unsorted-list.is-drop-child { outline: 2px solid var(--interactive-accent); outline-offset: -2px; border-radius: 6px; }
+.cmm-composer .is-drop-invalid .cmm-organic-hitbox { stroke: var(--text-error); stroke-width: 2px; }
+.cmm-composer-drag-ghost { position: fixed; pointer-events: none; z-index: 21; padding: 5px 8px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; background: var(--background-secondary); color: var(--text-muted); box-shadow: var(--shadow-s); font-size: 12px; }
+.cmm-composer.is-dragging { user-select: none; cursor: grabbing; }
 @media (prefers-reduced-motion: no-preference) {
- .cmm-composer button, .cmm-composer .cmm-organic-hitbox { transition: background-color 180ms ease-out, fill 180ms ease-out, stroke 180ms ease-out; }
- .cmm-composer-context, .cmm-composer-unsorted { animation: cmm-composer-surface 180ms ease-out; }
+ .cmm-composer button, .cmm-composer .cmm-organic-hitbox { transition: background-color 150ms ease-out, fill 150ms ease-out, stroke 150ms ease-out; }
+ .cmm-composer-node-add { transition: opacity 150ms ease-out; }
 }
 @keyframes cmm-composer-surface { from { opacity: 0; } to { opacity: 1; } }
 

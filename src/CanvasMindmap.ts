@@ -1,4 +1,6 @@
 import { buildMindMapModel } from './core/MindMapModel';
+import type { MindMapModel } from './core/MindMapModel';
+import { readSourceDocument, supportedSource } from './formats/SourceFormats';
 import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
 import { applyBranchAppearance } from './native/NativeAppearance';
 import { FuzzySuggestModal, ItemView, Menu, MenuItem, Modal, Notice, Setting } from 'obsidian';
@@ -175,7 +177,7 @@ export class CanvasMindmap {
     }
 
     private isSource(node: CanvasNode): boolean {
-        return node.file?.extension === 'md' || (!node.file && node.text !== undefined);
+        return supportedSource(node.file) || (!node.file && node.text !== undefined);
     }
 
     addSelectionMenu(menu: Menu): void {
@@ -299,16 +301,20 @@ export class CanvasMindmap {
         this.schedule(canvas);
     }
 
-    private async source(node: CanvasNode): Promise<string> {
+    private async source(node: CanvasNode): Promise<{ raw: string; model?: MindMapModel }> {
         const source = meta(node.getData())?.source;
         if (source?.file) {
             const file = this.plugin.app.vault.getFileByPath(source.file);
             if (!file) throw new Error('Mindmap source file is missing');
-            return this.plugin.app.vault.read(file);
+            const document = await readSourceDocument(this.plugin.app, file);
+            return { raw: document.format === 'md' ? document.text : document.fingerprint, model: document.model };
         }
-        if (source?.text !== undefined) return source.text;
-        if (node.file?.extension === 'md') return this.plugin.app.vault.read(node.file);
-        if (node.text !== undefined) return node.text;
+        if (source?.text !== undefined) return { raw: source.text };
+        if (supportedSource(node.file)) {
+            const document = await readSourceDocument(this.plugin.app, node.file);
+            return { raw: document.format === 'md' ? document.text : document.fingerprint, model: document.model };
+        }
+        if (node.text !== undefined) return { raw: node.text };
         throw new Error('Mindmap source is no longer a Markdown file or text card');
     }
 
@@ -316,20 +322,21 @@ export class CanvasMindmap {
         return { ...this.plugin.settings.mindmapLevels[Math.min(depth, 6)] };
     }
 
-    private makeNodes(canvas: Canvas, root: CanvasNode, raw: string, mode: 'title' | 'body'): AllCanvasNodeData[] {
+    private makeNodes(canvas: Canvas, root: CanvasNode, raw: string, mode: 'title' | 'body', external?: MindMapModel): AllCanvasNodeData[] {
         const sourcePath = meta(root.getData())?.source?.file;
         const sourceFile = sourcePath ? this.plugin.app.vault.getFileByPath(sourcePath) : root.file;
-        const model = buildMindMapModel(raw, {
+        const model = external ?? buildMindMapModel(raw, {
             title: sourceFile?.basename ?? t('中心'), file: sourceFile?.path,
             promoteSingleRoot: !!meta(root.getData())?.compact,
         });
         return new NativeCanvasRenderer().render(model, {
             rootId: root.id, x: root.x, y: root.y, mode, id: randomId, style: depth => this.style(depth),
-            payload: (title, content) => {
+            payload: (title, content, line) => {
                 const link = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(
-                    sourceFile, canvas.view.file.path, `#${title}`, title || t('无标题')) : title || t('无标题');
+                    sourceFile, canvas.view.file.path, sourceFile.extension === 'md' ? `#${title}` :
+                        sourceFile.extension === 'pdf' ? `#page=${line}` : '', title || t('无标题')) : title || t('无标题');
                 const text = mode === 'body' ? content : `**${link}**`;
-                return sourceFile && mode === 'body'
+                return sourceFile?.extension === 'md' && mode === 'body'
                     ? { data: { type: 'file', file: sourceFile.path, subpath: `#${sanitizeHeading(title)}` } }
                     : { data: { type: 'text', text }, generatedText: text };
             },
@@ -378,10 +385,10 @@ export class CanvasMindmap {
 
     private async generate(canvas: Canvas, root: CanvasNode, mode: 'title' | 'body', layout: MindmapLayout): Promise<void> {
         if (canvas.readonly || meta(root.getData())) return;
-        const raw = await this.source(root);
+        const source = await this.source(root), raw = source.raw;
         if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || meta(root.getData())) return;
-        const nodes = this.makeNodes(canvas, root, raw, mode);
-        if (!nodes.length) { new Notice(t('没有找到可生成思维导图的标题。')); return; }
+        const nodes = this.makeNodes(canvas, root, raw, mode, source.model);
+        if (!nodes.length && !source.model) { new Notice(t('没有找到可生成思维导图的标题。')); return; }
         const data = this.readData(canvas);
         const rootData = data.nodes.find(node => node.id === root.id)!;
         const rootStyle = { width: root.width, height: root.height, color: rootData.color ?? '', autoHeight: false };
@@ -662,7 +669,8 @@ export class CanvasMindmap {
         const id = randomId(), style = this.style(0);
         const file = root.type === 'file' ? root.file : undefined;
         const sourceFile = file ? this.plugin.app.vault.getFileByPath(file) : null;
-        const label = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(sourceFile, canvasPath, promoted ? `#${title}` : '', title) : title;
+        const label = sourceFile ? this.plugin.app.fileManager.generateMarkdownLink(sourceFile, canvasPath,
+            sourceFile.extension === 'md' && promoted ? `#${title}` : '', title) : title;
         const text = `**${label}**`;
         const center: AllCanvasNodeData = { type: 'text', id, text,
             x: (promoted ?? root).x, y: (promoted ?? root).y,
@@ -696,7 +704,7 @@ export class CanvasMindmap {
         const root = rootId && canvas.nodes.get(rootId);
         if (!root || canvas.readonly) return;
         const snapshot = JSON.stringify(canvas.getData());
-        const raw = meta(root.getData())?.compact ? '' : await this.source(root);
+        const raw = meta(root.getData())?.compact ? '' : (await this.source(root)).raw;
         if (JSON.stringify(canvas.getData()) !== snapshot) return;
         const data = this.readData(canvas), selected = data.nodes.find(node => node.id === id);
         const state = selected && meta(selected);
@@ -778,12 +786,12 @@ export class CanvasMindmap {
             const selected = canvas.nodes.get(id)?.getData(), state = selected && meta(selected);
             const root = state && canvas.nodes.get(state.rootId);
             if (!root || !state) { new Notice(t('中心节点已不存在，无法刷新。')); return; }
-            const raw = await this.source(root);
+            const source = await this.source(root), raw = source.raw;
             if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || !meta(root.getData())) return;
             const snapshot = JSON.stringify(canvas.getData());
             const data: CanvasData = JSON.parse(snapshot);
             const rootMeta = meta(data.nodes.find(node => node.id === root.id)!)!;
-            const fresh = this.makeNodes(canvas, root, raw, rootMeta.mode);
+            const fresh = this.makeNodes(canvas, root, raw, rootMeta.mode, source.model);
             const previous = treeNodes(data, root.id).filter(node => node.id !== root.id);
             const oldByKey = new Map(previous.map(node => [meta(node)!.key, node]));
             // Duplicate titles have no stable heading identifier in Markdown. Treat as ambiguous.
@@ -811,7 +819,7 @@ export class CanvasMindmap {
                 if (!accepted) return;
             }
             const currentSource = await this.source(root);
-            if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || JSON.stringify(canvas.getData()) !== snapshot || currentSource !== raw) {
+            if (this.stopped || canvas.readonly || canvas.nodes.get(root.id) !== root || JSON.stringify(canvas.getData()) !== snapshot || currentSource.raw !== raw) {
                 new Notice(t('画布或原文已发生变化，请重新执行刷新。')); return;
             }
             const generatedIds = new Map(fresh.map(node => [node.id, replacements.get(node.id) ?? node.id]));

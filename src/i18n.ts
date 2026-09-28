@@ -1,3 +1,4 @@
+import { COMPOSER_ZH } from './composer/ComposerStrings';
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
@@ -76,6 +77,15 @@ const EN: Record<string, string> = {
 };
 
 let current: 'en' | 'zh-CN' = 'en';
+
+// Do not replace existing shared translations when Composer uses the same Chinese key.
+for (const [en, zh] of Object.entries(COMPOSER_ZH)) if (!(zh in EN)) EN[zh] = en;
+
+export function ct(english: string, values: Record<string, string | number> = {}): string {
+    // English labels stay stable even when several source labels share one Chinese translation.
+    if (current === 'en') return english.replace(/\{([^}]+)\}/g, (match, key) => String(values[key] ?? match));
+    return t(COMPOSER_ZH[english] ?? english, values);
+}
 
 export function setLanguage(setting: LanguageSetting, obsidianLocale = ''): void {
     const locale = obsidianLocale.toLowerCase().replace('_', '-');

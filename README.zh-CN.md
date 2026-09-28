@@ -8,7 +8,7 @@
 
 **先用脑图组织想法，再生成 Markdown，继续写作。**
 
-Canvas Mind Map 提供三个独立工作空间：**Native Canvas** 使用原生卡片，**Organic** 阅读和编辑已有 Markdown，**Composer** 从空白脑图创建新文档。Organic 和 Composer 复用曲线分支渲染与布局，但各自的数据源和保存方式不同。
+Canvas Mind Map 提供三个独立工作空间：**Native Canvas** 使用原生卡片，**Organic** 阅读已有 Markdown、DOCX 与 PDF，并编辑 Markdown 或 DOCX，**Composer** 从空白脑图创建新文档。Organic 和 Composer 复用曲线分支渲染与布局，但各自的数据源和保存方式不同。
 
 **已上架 Obsidian 第三方插件市场。** [打开插件页面](https://obsidian.md/plugins?id=canvas-mind-map) · [下载 Release](https://github.com/Zenolzx/Canvas-Mind-Map/releases)。
 
@@ -18,8 +18,8 @@ Canvas Mind Map 提供三个独立工作空间：**Native Canvas** 使用原生�
 
 | 模式 | 数据源与保存 | 主要用途 | 入口 |
 | --- | --- | --- | --- |
-| Native Canvas | 原生 Canvas 节点和连线 | 七种布局、自由移动卡片、保留 Canvas 交互 | Canvas 笔记卡片或文本卡片上的「生成可折叠思维导图」 |
-| Organic | 已有 `.md` 文件；**Edit** 直接写回该文件 | **View** 阅读和导航；**Edit** 修改标题与章节直属正文 | Markdown 文件右键 → **以 Organic 模式打开笔记**，或同名命令 |
+| Native Canvas | 原生 Canvas 节点和连线 | 七种布局、自由移动卡片、保留 Canvas 交互 | Canvas 中 Markdown、DOCX、PDF 文件卡片或文本卡片上的「生成可折叠思维导图」 |
+| Organic | 已有 `.md`、`.docx` 或 `.pdf` 文件 | **View** 阅读和导航；**Edit** 写回 Markdown 或 DOCX | 支持的文件右键 → **以 Organic 模式打开笔记**，或同名命令 |
 | Composer | 插件 Draft；点击 **Create Note** 才创建 `.md` | 从空白或模板开始，收集想法、整理结构、填写正文 | Ribbon / 命令 **New Mind Map Document**；文件夹右键 **New Mind Map Document here** |
 
 从零写新文档使用下方的 **Composer**；修改已有笔记使用 **Organic Edit**；制作可移动卡片使用 **Native Canvas 快速开始**。**View / Edit** 是 Organic 内部状态；Native 的「仅标题 / 正文」控制卡片内容，不是新的顶层 Mode。
@@ -27,6 +27,12 @@ Canvas Mind Map 提供三个独立工作空间：**Native Canvas** 使用原生�
 ```text
 New Mind Map Document → Composer 草稿 → Create Note → Organic Edit ⇄ View
 ```
+
+### Word 与 PDF 来源
+
+DOCX 根据段落标题样式或大纲级别生成章节。Organic Edit 可将标题修改、章节增删与移动、纯文本直属正文写回原 `.docx`。含表格、图片、域、修订或富文本格式的直属正文只读；移动章节时保留其 Word 内容块。DOCX 撤销／重做限当前编辑会话。Native Canvas 可从 DOCX 生成和刷新卡片，不会修改原文。
+
+PDF 使用书签作为脑图结构，并提取可选择的页面文字供阅读；没有书签时只显示文档中心节点。不能提取文字的扫描件或受保护 PDF 无法生成导图。PDF 在两种模式下均只读。暂不支持旧版 `.doc` 或 OCR。
 
 ### Organic 阅读与导航
 
@@ -48,8 +54,8 @@ Organic 在原笔记变化后自动刷新（500ms 防抖），保留可可靠匹
 
 1. 点击 Ribbon 或命令面板中的 **New Mind Map Document**。文件夹右键的 **New Mind Map Document here** 会记住该目录，作为首次创建笔记时的默认位置。
 2. 双击中心节点 **Untitled** 或按 F2 改名。它表示文档名称，不会立即创建文件，也不默认成为 Markdown H1。
-3. Enter 新建章节。输入标题后，Enter 确认并开始下一个同级节点，Tab 确认并开始子节点，Esc 取消当前未完成节点。F2 修改已有节点时，Enter 只确认改名。
-4. 选中节点，在右侧填写**直属正文**，不包含后代正文。中心节点的正文是文档前言。**Body: auto / show / hide** 控制面板显示，拖动分隔线调整宽度。
+3. 选中节点后，Enter 创建同级、Tab 创建子节点，或点击悬停／键盘聚焦时出现的 `+`。直接在**节点内部**输入标题，Enter 仅确认；再按 Enter 才创建下一个同级。编辑时 Tab 确认并创建子节点，Esc 恢复原名或取消当前新节点。双击／F2 原位修改已有标题。
+4. 选中节点后，在画布底部显示一行**直属正文预览**。点击预览或“添加正文…”，也可按 Ctrl/Cmd+Enter，打开右侧正文编辑器；中心节点正文是文档前言。面板默认收起，仍可通过**视图 → 正文 → 自动／显示／隐藏**、固定按钮和分隔线控制。
 5. 点击 **Create Note**，检查导出选项和 Markdown 预览，选择文件名与目录。创建成功后，当前 Tab 进入 **Organic Edit**。
 
 Root 名称只提供文件名建议，两者可以分别修改。**Document name only** 将一级子节点导出为 H1；**Use root as H1** 将 Root 导出为 H1，子节点从 H2 开始。切换 Root 行为、拖动和缩进都会检查整个子树，阻止超过 H6。章节标题应在脑图中创建，不要写入 Heading 节点的正文。
@@ -57,10 +63,21 @@ Root 名称只提供文件名建议，两者可以分别修改。**Document name
 ### 整理想法
 
 - **Ctrl/Cmd+单击** 添加或移除选择；**Shift+单击** 选择可见范围。正文编辑针对当前主选中节点；类型修改作用于所有选中的非 Root 节点。
-- 右键 → **Create → Create parent from selection** 为同一父节点下的选中节点创建共同父节点，保留顺序、正文、后代和 metadata。
-- 拖动一个或多个选中分支，使用 **Before / Make child / After** 预览决定位置。形成环或超深的落点不可提交。键盘提升、降级、排序要求选择连续的同级节点；批量删除可删除整个分支或保留子节点。一次批量操作对应一次撤销。
-- 打开 **Unsorted Ideas**，通过 **Add idea** 收集还没确定位置的想法。可点击 **Move selection here**、在抽屉与脑图之间拖动，或使用 **Structure → Move to document root / Move to Unsorted Ideas**。
-- 正文面板或节点菜单可切换 **Heading / Idea / Todo**。Idea 使用 `?` 前缀和虚线外框；Todo 使用复选框标识，可点击 **Mark complete / incomplete** 标记完成状态。
+- 右键 → **为选中节点创建父节点**为同级节点创建共同父节点，并原位编辑标题；**复制**生成拥有独立 ID 的分支副本。正文、顺序、后代和 metadata 均保留。
+- 拖动节点默认移动**完整子树**，也可多选批量拖动。目标上部／下部表示插入到前／后，显示插入线；中央表示成为子节点，目标高亮。无需三选一弹窗。退出目标区域大于进入区域，并有分区抖动容差，轻微移出不会立即丢失落点。禁止移动根节点、形成环或超过标题深度。
+- 拖到画布边缘自动平移，拖到灵感箱边缘自动滚动；Esc 取消拖动。已有提升、降级、排序快捷键继续保留，分支删除仍可选择保留子节点。每次完成的结构操作对应一次撤销。
+- 选中节点的浮动工具栏只保留 `…`。聚焦、节点类型、复制和高级分支操作放在右键菜单；文档属性、模板、导出工具放在全局 `…`。删除与鼠标操作重复的 Add／Move 菜单入口。
+- **节点类型 → 标题／想法／待办**保留为高级选项。Idea 仍有 `?` 前缀，Todo 保留可点击的完成复选框；脑图中新建节点默认是标题。
+
+### 灵感箱 / Ideas Inbox
+
+点击**灵感箱**打开停靠侧栏。侧栏压缩画布可用宽度，不覆盖脑图。开关时保持选中节点和缩放；空间允许时保持节点屏幕位置，否则只做保持可见所需的最小平移。窄窗口中仍并排布局，必要时横向滚动。
+
+- 在**记录一个想法…**中输入，Enter 创建卡片并保持输入焦点。卡片可补充正文，显示一行预览；双击／F2 原位重命名。
+- 粘贴多行后才显示**作为一个想法**（首行作标题，其余作正文）和**按行拆分**（每个非空行一张卡片）。整次批量创建只需一次撤销。
+- 搜索标题和正文；Ctrl/Cmd+单击或 Shift+单击多选；拖动卡片排序。卡片之间的拖拽只排序，不建立新嵌套。暂存的完整子树显示后代数量，可展开查看。
+- 脑图分支拖入灵感箱即暂存，保留节点类型、后代、正文和 metadata。拖动时停留在关闭的灵感箱入口，可自动展开侧栏。
+- **从灵感箱拖回脑图即正式采纳**：分支中的 Idea 自动转为 Heading，已有标题和 Todo 完成状态保持不变。移动与类型转换一起撤销。仍可通过节点菜单主动设置高级 Idea 类型。
 
 ### 搜索与聚焦
 
@@ -70,7 +87,7 @@ Root 名称只提供文件名建议，两者可以分别修改。**Document name
 
 命令 **New Composer from template** 或 **⋯ → New from template** 提供 Blank、Essay、Project Plan、Meeting Notes、Research Notes、Course Notes。每次创建独立 Draft。**⋯ → Duplicate draft** 复制正文、节点类型、属性和待整理想法，可用来复用自己的文档结构。
 
-**⋯ → Document properties** 编辑 YAML Frontmatter，不包含 `---` 分隔线；必须是有效的 YAML mapping，导出时放在前言之前。**⋯ → Copy outline** 复制 Markdown 列表大纲，包含 Todo 复选框和 Unsorted Ideas 分组。状态栏显示章节、Idea、Todo 完成数、待整理节点、字词统计及草稿保存状态。
+**⋯ → 文档属性**编辑 YAML Frontmatter，不包含 `---` 分隔线；必须是有效的 YAML mapping，导出时放在前言之前。**⋯ → 复制大纲**复制 Markdown 列表大纲，包含 Todo 复选框和灵感箱分组。统计数据放在**⋯ → 文档信息**，状态栏仅显示保存状态。
 
 ### 导出与保存
 
@@ -93,7 +110,9 @@ Root 名称只提供文件名建议，两者可以分别修改。**Document name
 | 操作 | 行为 |
 | --- | --- |
 | F2 / 双击 | 重命名文档或节点 |
-| Enter / Tab | 新建同级 / 子节点；输入新节点时支持连续创建 |
+| Enter / Tab（选中节点时） | 新建同级／子节点 |
+| Enter / Tab（编辑标题时） | 仅确认／确认并新建子节点 |
+| Esc（编辑标题／拖动时） | 取消当前标题编辑或拖动 |
 | Shift+Tab / Alt+← | 提升 |
 | Alt+→ | 变成前一同级节点的子节点 |
 | Alt+↑ / Alt+↓ | 同级排序 |
@@ -105,6 +124,8 @@ Root 名称只提供文件名建议，两者可以分别修改。**Document name
 | 拖背景 / 滚轮 / `+` / `-` / `0` | 平移 / 缩放 / 缩放 / 适应画布 |
 
 布局支持 Horizontal / Radial / Compact，Composer 独立记住默认布局和面板宽度。当前仍以文档树为核心；路线图 v2 中的非树关系、共享想法与自由知识网络尚未实现。
+
+Composer、灵感箱、草稿管理、模板和创建笔记流程跟随插件的**自动／英语／简体中文**设置。修改语言后已打开的 Composer 同步更新；命令面板名称在重新加载插件后更新。已有标题与正文不会被翻译。继续兼容 schemaVersion 1 草稿；未确认的原位标题不会写入自动保存。
 
 ## Edit / 思维导图写作模式
 
@@ -238,7 +259,7 @@ npm run build
 
 生产构建会检查 TypeScript 并生成 `main.js`。将生成的文件与 `manifest.json`、`styles.css` 一起复制到插件目录。开发时可运行 `npm run dev` 持续监听源码变化，按 `Ctrl+C` 结束监听。
 
-`npm test` 运行 Native、Organic 和 Composer 模型回归。`npm run test:composer-browser` 使用无头浏览器与模拟 Obsidian 接口，验证 Composer 交互及转入 Organic 的流程。其他本地环境可通过 `CMM_PLAYWRIGHT` 指定 Playwright 模块路径、`CMM_BROWSER` 指定 Chromium / Edge 可执行文件。这些测试不能替代真实 Vault 验收。
+`npm test` 运行 Native、Organic 和 Composer 模型回归。`npm run test:composer-browser` 使用无头浏览器与模拟 Obsidian 接口，验证原位编辑、停靠灵感箱、Before/Child/After 命中、拖拽容差、子树采纳、双语界面及转入 Organic 的流程。其他本地环境可通过 `CMM_PLAYWRIGHT` 指定 Playwright 模块路径、`CMM_BROWSER` 指定 Chromium / Edge 可执行文件。这些测试不能替代真实 Vault 验收。
 
 ## 反馈
 

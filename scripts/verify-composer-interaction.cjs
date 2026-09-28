@@ -1,0 +1,37 @@
+const assert = require('node:assert/strict'), esbuild = require('esbuild');
+const bundle = esbuild.buildSync({stdin:{contents:`export * from './src/composer/ComposerInteraction';export * from './src/composer/ComposerModel';export * from './src/i18n';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'cjs',write:false});
+const mod={exports:{}};new Function('module','exports','require',bundle.outputFiles[0].text)(mod,mod.exports,require);
+const {hitDrop,transferNodes,newDraft,newNode,ComposerHistory,clone,setLanguage,ct}=mod.exports;
+const rect={left:100,right:300,top:100,bottom:180}, targets=[{id:'a',rect},{id:'b',rect:{left:320,right:450,top:100,bottom:180}}];
+assert.deepEqual(hitDrop(150,101,targets),{target:'a',position:'before'});
+assert.deepEqual(hitDrop(150,140,targets),{target:'a',position:'child'});
+assert.deepEqual(hitDrop(150,179,targets),{target:'a',position:'after'});
+assert.equal(hitDrop(89,140,targets).target,'a');
+assert.equal(hitDrop(77,140,targets,{target:'a',position:'child'}).target,'a');
+assert.equal(hitDrop(75,140,targets,{target:'a',position:'child'}),undefined);
+assert.equal(hitDrop(150,124,targets,{target:'a',position:'before'}).position,'before');
+assert.equal(hitDrop(150,127,targets,{target:'a',position:'before'}).position,'child');
+assert.equal(hitDrop(150,116,targets,{target:'a',position:'child'}).position,'child');
+assert.equal(hitDrop(150,113,targets,{target:'a',position:'child'}).position,'before');
+assert.equal(hitDrop(325,140,targets,{target:'a',position:'child'}).target,'b');
+for(const scale of [.1,.5,1,3]) {
+ const t=[{id:'a',rect:{left:100,right:100+200*scale,top:100,bottom:100+80*scale}}];
+ assert.equal(hitDrop(77,100+40*scale,t,{target:'a',position:'child'}).target,'a');
+ assert.equal(hitDrop(75,100+40*scale,t,{target:'a',position:'child'}),undefined);
+}
+const inbox=[{id:'i',inbox:true,rect}, {id:'@unsorted',rect:{left:90,top:80,right:310,bottom:600},inbox:true}];
+assert.equal(hitDrop(200,110,inbox).position,'before');assert.equal(hitDrop(200,150,inbox).position,'after');assert.equal(hitDrop(200,400,inbox).target,'@unsorted');
+const draft=newDraft(), a=newNode('A'), idea=newNode('Seed','idea'), child=newNode('Child','idea'), todo=newNode('Task','todo');
+todo.checked=true;todo.body='Keep task body';todo.metadata={key:'value'};idea.body='Keep root body';idea.children=[child,todo];draft.root.children=[a];draft.unsorted=[idea];
+const history=new ComposerHistory(draft), original=clone(draft);
+history.change(d=>transferNodes(d,[idea.id,child.id],{target:a.id,position:'child'}));
+let moved=history.draft.root.children[0].children[0];assert.equal(moved.id,idea.id);assert.equal(moved.type,'heading');assert.equal(moved.children[0].type,'heading');assert.deepEqual(moved.children[1],todo);assert.equal(moved.body,idea.body);
+history.undo();assert.deepEqual(history.draft,original);history.redo();
+history.change(d=>transferNodes(d,[idea.id],{target:'@unsorted',position:'child'}));assert.equal(history.draft.unsorted[0].type,'heading');assert.equal(history.draft.unsorted[0].children[1].checked,true);
+const stable=JSON.stringify(history.draft);assert.throws(()=>history.change(d=>transferNodes(d,[idea.id],{target:todo.id,position:'child'})),/itself/);assert.equal(JSON.stringify(history.draft),stable);
+assert.throws(()=>history.change(d=>transferNodes(d,[d.root.id],{target:'@unsorted',position:'child'})),/root/);
+const b=newNode('B','idea'),c=newNode('C','idea');history.change(d=>d.unsorted.push(b,c));history.change(d=>transferNodes(d,[b.id,c.id],{target:a.id,position:'before'}));assert.deepEqual(history.draft.root.children.map(n=>n.title),['B','C','A']);
+const deep=newDraft();let tail=deep.root;for(let i=0;i<6;i++){const n=newNode('Level');tail.children=[n];tail=n;}const seed=newNode('Seed','idea');deep.unsorted=[seed];const depth=new ComposerHistory(deep), before=clone(deep);assert.throws(()=>depth.change(d=>transferNodes(d,[seed.id],{target:tail.id,position:'child'})),/depth/);assert.deepEqual(depth.draft,before);
+setLanguage('zh-CN');assert.equal(ct('Capture an idea…'),'记录一个想法…');assert.equal(ct('Delete {count} selected nodes?',{count:3}),'删除选中的 3 个节点？');assert.equal(newDraft().root.title,'无标题');
+setLanguage('en');assert.equal(ct('Ideas Inbox'),'Ideas Inbox');assert.equal(ct('Delete {count} selected nodes?',{count:3}),'Delete 3 selected nodes?');setLanguage('auto','zh-cn');assert.equal(ct('Create Note'),'创建笔记');setLanguage('auto','fr');assert.equal(ct('Create Note'),'Create Note');
+console.log('PASS Composer direct interactions: screen-space tolerance, hysteresis, target switching, inbox sorting, subtree adoption, atomic undo/redo, cycles, H6, metadata and bilingual defaults');
