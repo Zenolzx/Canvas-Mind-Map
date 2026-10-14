@@ -1,8 +1,19 @@
 import { Setting } from 'obsidian';
 import type CanvasMindMapPlugin from '../../main';
 import { t } from '../i18n';
+import { normalizeAppearancePreset } from '../settings';
 
 export function renderOrganicSettings(container: HTMLElement, plugin: CanvasMindMapPlugin): void {
+    new Setting(container).setName(t('导图外观')).setHeading();
+    new Setting(container).setName(t('风格预设')).setDesc(t('应用于 Composer、Organic 和 Canvas 导图。')).addDropdown(dropdown => dropdown
+        .addOptions({
+            ink: t('淡雅青绿·水墨'), cinnabar: t('暖白宣纸·朱砂'),
+            breeze: t('薄荷叶影'), violet: t('樱花湖景'), white: t('默认风格'),
+        })
+        .setValue(plugin.settings.appearance).onChange(async value => {
+            plugin.settings.appearance = normalizeAppearancePreset(value);
+            plugin.refreshAppearance(); await plugin.saveSettings();
+        }));
     new Setting(container).setName('Organic Mind Map').setHeading();
     new Setting(container).setName(t('原笔记变化时自动刷新')).addToggle(toggle =>
         toggle.setValue(plugin.settings.organic.autoRefresh).onChange(async value => {

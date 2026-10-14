@@ -10,7 +10,7 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   assert.equal(await page.locator('.cmm-composer-body').isVisible(),false);
   assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),false);
   assert.equal(await page.locator('.cmm-composer-search').isVisible(),false);
-  assert.equal(await page.locator('.cmm-composer-toolbar > button').count(),5);
+  assert.equal(await page.locator('.cmm-composer-toolbar > button').count(),7);
   await page.keyboard.press('Control+Enter');assert.equal(await page.locator('.cmm-composer-body').isVisible(),true);
   await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'show');
   await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'auto');
@@ -62,8 +62,30 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.evaluate(()=>{const v=window.composerTest.view;v.render();v.fit();});
   const cycleStart=await point('Process'),cycleEnd=await point('Paging');await page.mouse.move(cycleStart.x,cycleStart.y);await page.mouse.down();await page.mouse.move(cycleEnd.x,cycleEnd.y,{steps:10});assert.match(await page.locator('.cmm-composer-drop').textContent(),/itself/);await page.mouse.up();
   await page.waitForTimeout(600);assert.equal(await page.evaluate(()=>Object.values(window.composerTest.getDisk())[0].root.children[0].children[0].children[0].body),'Paging body.\n\n- Page table');
+  for (const [preset, asset] of [
+   ['ink', 'ink-landscape.webp'], ['cinnabar', 'cinnabar-landscape.webp'],
+   ['breeze', 'mint-leaves.webp'], ['violet', 'sakura-lake.webp'], ['white', null],
+  ]) {
+   await page.evaluate(({preset, asset}) => {
+    const view = window.composerTest.view;
+    const root = document.querySelector('.cmm-composer');
+    root.dataset.cmmAppearance = preset;
+    if (asset) root.style.setProperty('--cmm-art', `url("assets/${asset}")`);
+    else root.style.removeProperty('--cmm-art');
+    view.drawerOpen = true; view.renderDrawer();
+    view.draft.panel = 'show'; view.render(); view.fit();
+   }, {preset, asset});
+   await page.screenshot({path:`tmp/composer-browser/wallpaper-${preset}.png`});
+  }
   await page.screenshot({path:'tmp/composer-browser/composer.png'});
-  await page.getByRole('button',{name:'Create Note',exact:true}).click();assert.equal(await page.locator('.test-modal input').nth(1).inputValue(),'Projects');
+  await page.getByRole('button',{name:'Create Note',exact:true}).click();
+  const folderSelect=page.getByRole('combobox',{name:'Location (existing vault folder)'});
+  assert.equal(await folderSelect.inputValue(),'Projects');
+  assert.deepEqual(await folderSelect.locator('option').allTextContents(),['Vault root','Projects','Projects/Research']);
+  assert.match(await page.locator('.cmm-composer-create-path').textContent(),/Projects\/Operating Systems\.md/);
+  await folderSelect.selectOption('');assert.match(await page.locator('.cmm-composer-create-path').textContent(),/Operating Systems\.md/);
+  await folderSelect.selectOption('Projects/Research');assert.match(await page.locator('.cmm-composer-create-path').textContent(),/Projects\/Research\/Operating Systems\.md/);
+  await folderSelect.selectOption('Projects');
   await page.locator('.test-modal input').first().fill('bad/name');await page.getByRole('button',{name:'Create',exact:true}).click();assert.match(await page.locator('[role="alert"]').textContent(),/valid/);assert.equal(await page.evaluate(()=>window.composerTest.getCreated()),0);
   await page.evaluate(()=>window.composerTest.seedFile('Projects/Existing.md','Original content'));
   await page.locator('.test-modal input').first().fill('Existing');await page.getByRole('button',{name:'Create',exact:true}).click();assert.match(await page.locator('[role="alert"]').textContent(),/already exists/);

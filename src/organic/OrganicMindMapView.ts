@@ -1,12 +1,14 @@
 import { Component, ItemView, MarkdownRenderer, Menu, Notice, Scope, TFile, WorkspaceLeaf } from 'obsidian';
 import { buildMindMapModel, MindMapModel } from '../core/MindMapModel';
 import { t } from '../i18n';
+import { updateAppearanceParallax } from '../appearance/AppearanceParallax';
 import { OrganicLayoutEngine, OrganicLayoutResult } from './OrganicLayoutEngine';
 import { OrganicMindMapRenderer, svgElement } from './OrganicMindMapRenderer';
 import { OrganicViewState, SavedOrganicState, sourceFingerprint } from './OrganicViewState';
 import { OrganicViewportController } from './OrganicViewportController';
 import type { OrganicStateStore } from './OrganicStateStore';
 import { normalizeOrganicSettings, OrganicSettings } from '../settings';
+import type { AppearancePreset } from '../settings';
 import { OrganicAutoRefreshController } from './OrganicAutoRefreshController';
 import { OrganicIdentity, reconcileOrganicModel } from './OrganicNodeIdentity';
 import { OrganicInteractionController } from './OrganicInteractionController';
@@ -77,7 +79,8 @@ export class OrganicMindMapView extends ItemView {
     private pendingWritingState?: unknown;
     private requestedWritingMode?: boolean;
     constructor(leaf: WorkspaceLeaf, private store?: OrganicStateStore,
-        private settings: () => OrganicSettings = () => normalizeOrganicSettings({}), private documentHost?: ObsidianDocumentHost) { super(leaf); }
+        private settings: () => OrganicSettings = () => normalizeOrganicSettings({}), private documentHost?: ObsidianDocumentHost,
+        private appearance: () => AppearancePreset = () => 'ink', private applyAppearance?: (element: HTMLElement) => void) { super(leaf); }
     getViewType(): string { return ORGANIC_VIEW; }
     getDisplayText(): string { return this.file ? `${this.file.basename} · Organic` : 'Organic Mind Map'; }
     getIcon(): string { return 'git-fork'; }
@@ -165,6 +168,8 @@ export class OrganicMindMapView extends ItemView {
             if (file.path === this.sourcePath) this.autoRefresh?.changed();
         }));
         this.contentEl.empty(); this.contentEl.addClass('cmm-organic-view');
+        this.contentEl.dataset.cmmAppearance = this.appearance();
+        this.applyAppearance?.(this.contentEl);
         this.toolbar = new OrganicToolbar(this.contentEl, {
             search: query => { if (!this.model) return; this.interaction.search.update(this.model, query); this.searchJump(); },
             next: delta => { this.interaction.search.move(delta); this.searchJump(); },
@@ -178,11 +183,11 @@ export class OrganicMindMapView extends ItemView {
         });
         this.status = this.toolbar.status;
         const writingActions = this.contentEl.createDiv({ cls: 'cmm-writing-toolbar' });
-        this.viewModeButton = writingActions.createEl('button', { text: 'View', attr: { 'aria-pressed': 'true' } });
+        this.viewModeButton = writingActions.createEl('button', { text: t('查看'), attr: { 'aria-pressed': 'true' } });
         this.viewModeButton.onclick = () => { if (this.isWriting) void this.toggleWriting(); };
-        this.modeButton = writingActions.createEl('button', { text: 'Edit', attr: { 'aria-pressed': 'false' } });
+        this.modeButton = writingActions.createEl('button', { text: t('编辑'), attr: { 'aria-pressed': 'false' } });
         this.modeButton.onclick = () => { if (!this.isWriting) void this.toggleWriting(); };
-        this.readerButton = writingActions.createEl('button', { text: 'Show reader' });
+        this.readerButton = writingActions.createEl('button', { text: t('显示阅读器') });
         this.readerButton.onclick = () => {
             this.readerVisible = !this.readerVisible; this.applySplit(); this.remember();
         };
@@ -405,7 +410,7 @@ export class OrganicMindMapView extends ItemView {
         if (this.readerPane) this.readerPane.hidden = this.isWriting || !this.readerVisible;
         if (this.readerButton) {
             this.readerButton.hidden = this.isWriting;
-            this.readerButton.textContent = this.readerVisible ? 'Hide reader' : 'Show reader';
+            this.readerButton.textContent = t(this.readerVisible ? '隐藏阅读器' : '显示阅读器');
             this.readerButton.setAttribute('aria-pressed', String(this.readerVisible));
         }
         this.updateReader();
@@ -482,7 +487,7 @@ export class OrganicMindMapView extends ItemView {
         this.external = { format: 'docx', model, text: '', fingerprint: binaryFingerprint(this.docxWriting!.source.raw) };
         this.state.selectedNode = selected; this.layoutEpoch++; this.readerKey = '';
         this.interaction.update(model); this.draw(selected);
-        this.status.textContent = `${this.file?.basename ?? 'DOCX'} · ${model.nodes.length} 个节点 · Organic Edit`;
+        this.status.textContent = `${this.file?.basename ?? 'DOCX'} · ${t('{count} 个节点', { count: model.nodes.length })} · Organic ${t('编辑')}`;
         this.remember();
     }
     private publishWriting(doc: DocumentStructure, selected: string, structureChanged: boolean): void {
@@ -512,7 +517,7 @@ export class OrganicMindMapView extends ItemView {
         }
         if (structureChanged) this.layoutEpoch++;
         this.interaction.update(this.model); this.draw(structureChanged && previousTopology !== topology(this.model) ? (this.model.nodes.some(n => n.id === anchor) ? anchor : selected) : undefined, structureChanged);
-        this.status.textContent = `${doc.order.length} 章节 · Enter 同级 / Tab 子章节 / F2 重命名${doc.diagnostics.length ? ' · 当前文档需修复：' + doc.diagnostics[0].message : ''}`;
+        this.status.textContent = `${t('{count} 个章节', { count: doc.order.length })} · ${t('Enter 同级 / Tab 子章节 / F2 重命名')}${doc.diagnostics.length ? ' · ' + t('当前文档需修复：{message}', { message: doc.diagnostics[0].message }) : ''}`;
     }
     private async exportMap(format: 'svg' | 'png'): Promise<void> {
         const file = this.file, result = this.result;
@@ -611,7 +616,7 @@ export class OrganicMindMapView extends ItemView {
                 } else if (changed) this.state.reset(document.model, this.state.layout);
                 this.interaction.update(document.model); this.draw(); this.updateReader();
                 if (reset) this.fit();
-                this.status.textContent = `${file.basename} · ${document.model.nodes.length} 个节点${file.extension === 'pdf' ? ' · 只读' : ''}`;
+                this.status.textContent = `${file.basename} · ${t('{count} 个节点', { count: document.model.nodes.length })}${file.extension === 'pdf' ? ' · ' + t('只读') : ''}`;
                 if (reset && saved?.writing?.enabled && file.extension === 'docx') await this.toggleWriting();
                 return;
             }
@@ -759,6 +764,7 @@ export class OrganicMindMapView extends ItemView {
         this.transformFrame = undefined;
         this.viewport.cancel();
         this.scene.setAttribute('transform', `translate(${this.offset.x} ${this.offset.y}) scale(${this.scale})`);
+        if (this.appearance() !== 'white') updateAppearanceParallax(this.svg, this.offset.x, this.offset.y, this.scale);
     }
     private scheduleTransform(): void {
         const win = this.contentEl.ownerDocument?.defaultView;

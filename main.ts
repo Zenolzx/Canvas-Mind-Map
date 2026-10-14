@@ -4,7 +4,7 @@ import { COMPOSER_VIEW, ComposerView, showDrafts, showTemplates } from './src/co
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
-import { LAYOUT_LABEL_KEYS, MindmapSettings, normalizeOrganicSettings } from './src/settings';
+import { LAYOUT_LABEL_KEYS, MindmapSettings, normalizeAppearancePreset, normalizeOrganicSettings } from './src/settings';
 import { PluginDataStore } from './src/PluginDataStore';
 import { OrganicStateStore } from './src/organic/OrganicStateStore';
 import { renderOrganicSettings } from './src/organic/OrganicSettings';
@@ -12,6 +12,11 @@ import { setLanguage, t, ct } from './src/i18n';
 import { ORGANIC_VIEW, OrganicMindMapView } from './src/organic/OrganicMindMapView';
 import { supportedSource } from './src/formats/SourceFormats';
 import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
+import inkLandscape from './assets/ink-landscape.webp';
+import cinnabarLandscape from './assets/cinnabar-landscape.webp';
+import mintLeaves from './assets/mint-leaves.webp';
+import sakuraLake from './assets/sakura-lake.webp';
+import { resetAppearanceParallax } from './src/appearance/AppearanceParallax';
 
 export default class CanvasMindMapPlugin extends Plugin {
     settings: MindmapSettings;
@@ -19,11 +24,13 @@ export default class CanvasMindMapPlugin extends Plugin {
     organicStates: OrganicStateStore;
     composerDrafts: ComposerStore;
     private dataStore: PluginDataStore;
+    private appearanceApplied = new WeakMap<HTMLElement, string>();
 
     async onload(): Promise<void> {
         const saved = await this.loadData() ?? {};
         this.settings = {
             organic: normalizeOrganicSettings(saved.organic),
+            appearance: normalizeAppearancePreset(saved.appearance),
             mindmapLevels: normalizeMindmapLevels(saved.mindmapLevels),
             lastMode: saved.lastMode === 'body' ? 'body' : 'title',
             focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
@@ -37,11 +44,17 @@ export default class CanvasMindMapPlugin extends Plugin {
             error => { console.error('Organic state save failed', error); new Notice(t('Organic 状态保存失败，请查看控制台。')); });
         this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
             this.organicStates.rename(oldPath, file.path);
+            this.composerDrafts.renameCreatedPath(oldPath, file.path);
+            for (const leaf of this.app.workspace.getLeavesOfType(COMPOSER_VIEW))
+                (leaf.view as ComposerView).sourceRenamed(oldPath, file.path);
             for (const leaf of this.app.workspace.getLeavesOfType(ORGANIC_VIEW))
                 (leaf.view as OrganicMindMapView).sourceRenamed(oldPath, file.path);
         }));
         this.registerEvent(this.app.vault.on('delete', file => {
             this.organicStates.remove(file.path);
+            this.composerDrafts.detachCreatedPath(file.path);
+            for (const leaf of this.app.workspace.getLeavesOfType(COMPOSER_VIEW))
+                (leaf.view as ComposerView).sourceDeleted(file.path);
             for (const leaf of this.app.workspace.getLeavesOfType(ORGANIC_VIEW))
                 (leaf.view as OrganicMindMapView).sourceDeleted(file.path);
         }));
@@ -50,8 +63,8 @@ export default class CanvasMindMapPlugin extends Plugin {
         const documentHost = new ObsidianDocumentHost(this.app);
         this.register(() => documentHost.dispose());
         this.registerEditorExtension(documentHost.extension);
-        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost));
-        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts));
+        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost, () => this.settings.appearance, el => this.applyAppearance(el)));
+        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts, () => this.settings.appearance, el => this.applyAppearance(el)));
         const openComposer = async (draftId?: string, targetFolder?: string) => {
             const existing = draftId && this.app.workspace.getLeavesOfType(COMPOSER_VIEW).find(leaf => leaf.view.getState().draftId === draftId);
             if (existing) { await this.app.workspace.revealLeaf(existing); return; }
@@ -144,6 +157,31 @@ export default class CanvasMindMapPlugin extends Plugin {
     }
 
     async saveSettings(): Promise<void> { await this.dataStore.save(); }
+
+    applyAppearance(element: HTMLElement): void {
+        const preset = this.settings.appearance;
+        if (this.appearanceApplied.get(element) === preset) return;
+        element.querySelectorAll('.cmm-composer-stage, .cmm-organic-surface, .canvas-wrapper').forEach(resetAppearanceParallax);
+        element.dataset.cmmAppearance = preset;
+        const art = { ink: inkLandscape, cinnabar: cinnabarLandscape, breeze: mintLeaves, violet: sakuraLake, white: undefined }[preset];
+        if (art) element.style.setProperty('--cmm-art', `url("${art}")`);
+        else element.style.removeProperty('--cmm-art');
+        this.appearanceApplied.set(element, preset);
+    }
+
+    clearAppearance(element: HTMLElement): void {
+        delete element.dataset.cmmAppearance;
+        element.style.removeProperty('--cmm-art');
+        this.appearanceApplied.delete(element);
+    }
+
+    refreshAppearance(): void {
+        for (const type of [ORGANIC_VIEW, COMPOSER_VIEW])
+            for (const leaf of this.app.workspace.getLeavesOfType(type))
+                if (leaf.view instanceof OrganicMindMapView || leaf.view instanceof ComposerView)
+                    this.applyAppearance(leaf.view.contentEl);
+        this.mindmap?.refreshAppearance();
+    }
 
     private async openOrganic(file: TFile): Promise<void> {
         const leaf = this.app.workspace.getLeaf('tab');

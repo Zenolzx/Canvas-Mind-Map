@@ -1,6 +1,10 @@
 /** English source labels map into the plugin's existing Chinese-key translator. */
 export const COMPOSER_ZH: Record<string, string> = {
     'Untitled': '无标题', 'Search': '搜索', 'View': '视图', 'More': '更多', 'Create Note': '创建笔记',
+    'Structured': '结构', 'Sketch': '手稿', 'Switch Composer mode': '切换 Composer 模式', 'Arrange layout': '整理布局',
+    'Sketch tools': '手稿工具', 'Free note': '自由便签', 'Select': '选择', 'Connect': '连接', 'Choose target': '选择目标',
+    'Arrow': '箭头', 'Circle': '圈选', 'Highlight': '荧光标记', 'Text note': '文字批注', 'Convert to heading': '转换为标题',
+    ' · Composer draft retained with canvas ideas.': ' · 画布想法已保留在 Composer 草稿中。',
     'Search document and unsorted ideas': '搜索文档和灵感箱', 'Search Composer': '搜索 Composer', 'Search scope': '搜索范围',
     'Titles': '标题', 'Bodies': '正文', 'Everything': '全部', 'Previous': '上一项', 'Next': '下一项', 'Close search': '关闭搜索',
     'Unsorted Ideas': '灵感箱', 'Ideas Inbox': '灵感箱', 'Close Ideas': '关闭灵感箱', 'Ideas': '灵感箱',
@@ -31,6 +35,10 @@ export const COMPOSER_ZH: Record<string, string> = {
     'Create Markdown Note': '创建 Markdown 笔记', 'Discard draft': '丢弃草稿', 'This draft has not been converted to a Markdown note.': '此草稿尚未转换为 Markdown 笔记。',
     'Discard': '丢弃', 'Draft recovery': '草稿恢复', 'Draft storage could not be confirmed. Copy this recovery data before closing Obsidian, or retry saving.': '无法确认草稿是否保存成功。请在关闭 Obsidian 前复制恢复数据，或重试保存。',
     'Select recovery data': '选中恢复数据', 'Retry save': '重试保存', 'Name': '名称', 'Location (existing vault folder)': '位置（仓库中已有文件夹）',
+    'Vault root': '仓库根目录', 'Folder no longer exists: {path}': '文件夹已不存在：{path}',
+    'Destination': '保存位置', 'Content': '文档内容', 'New note: {path}': '新笔记：{path}',
+    'Enter a valid name and folder to see the note path.': '输入有效名称和文件夹后显示笔记路径。',
+    'This draft has {count} sections.': '此草稿有 {count} 个章节。',
     'Root behavior': '根节点用途', 'Document name only': '仅作为文档名称', 'Idea export policy': '想法导出方式', 'Choose…': '请选择…',
     'Convert to headings': '转换为标题', 'Convert to bullet items': '转换为列表项', 'Exclude idea branches': '不导出想法分支', 'Review individually': '逐项检查',
     'Unsorted export policy': '灵感箱导出方式', 'Append to document': '追加到文档', 'Exclude and keep draft': '不导出并保留草稿',

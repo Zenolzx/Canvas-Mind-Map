@@ -12,7 +12,7 @@ Canvas Mind Map offers three workspaces: **Native Canvas** for native cards, **O
 
 Available in the **Obsidian Community Plugins directory**. [Open the plugin page](https://obsidian.md/plugins?id=canvas-mind-map) · [Download releases](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
 
-This README describes the current source, including Composer's thinking and writing tools (v1.1 / v1.2 roadmap). Features available in a packaged version are listed in its [release notes](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
+This README describes the current source. Features available in a packaged version are listed in its [release notes](https://github.com/Zenolzx/Canvas-Mind-Map/releases).
 
 ## Choose a mode
 
@@ -38,13 +38,13 @@ PDF uses its bookmarks as the mind-map structure and extracts selectable page te
 
 Organic opens in its own tab and never converts or overwrites a `.canvas` file. In View mode, a sole top-level heading becomes the center; otherwise the note name is used. Notes without headings show the note name. Initially the center (depth 0) and two descendant levels are visible. Click a heading to open its source line, including repeated headings; use the small +/− controls to fold branches. Folding preserves branch color, side, order and the clicked heading's screen position.
 
-Drag the background to pan, scroll to zoom around the pointer, or use the toolbar's zoom and **Fit to view** controls. With the background focused, arrow keys pan, +/− zoom and 0 fits the map. Headings and fold controls are keyboard accessible.
+Drag the background to pan or scroll to zoom around the pointer. The toolbar groups search, Focus, Reading and layout as navigation controls, with export, refresh, fit and zoom alongside them; the tool group scrolls horizontally in a narrow pane. With the background focused, arrow keys pan, +/− zoom and 0 fits the map. Headings and fold controls are keyboard accessible.
 
 Organic automatically refreshes after source changes (500ms debounce), preserving matched heading state and the viewport. **Refresh** remains available. Heading identity is reconciled using section content and hierarchy; ambiguous edits safely discard unmatched state. Source navigation still checks for stale content before jumping.
 
-Use **Search headings** or Ctrl/Cmd+F inside Organic to search all headings, including folded descendants. Enter/Shift+Enter moves between results; Esc clears search. Right-click a heading to **Focus branch** or **Read this branch**. Focus shows its subtree and ancestor path; Reading follows Markdown order with ↑/↓ and smooth viewport movement. Search outside a focused branch temporarily suspends Focus and restores it when cleared. Temporary expansion does not overwrite manual folding.
+Use **Search headings** or Ctrl/Cmd+F inside Organic to search all headings, including folded descendants. Enter/Shift+Enter moves between results; Esc clears search, and unmatched queries show **No results**. Right-click a heading to **Focus branch** or **Read this branch**. Focus shows its subtree and ancestor path; Reading follows Markdown order with ↑/↓ and smooth viewport movement. Search outside a focused branch temporarily suspends Focus and restores it when cleared. Temporary expansion does not overwrite manual folding.
 
-The layout selector offers **Organic Radial**, **Organic Horizontal**, and **Compact Organic**. Fold animations respect reduced motion. **Export → SVG / PNG** saves the current visible structure (including Focus and folding) next to the source note, with numbered filenames to avoid overwriting. PNG defaults to 2x; 1x/2x/3x are available in settings. Very large PNG dimensions are rejected with a suggestion to reduce scale or use SVG.
+The layout selector offers **Radial**, **Horizontal**, and **Compact**. Fold animations respect reduced motion. **Export → SVG / PNG** saves the current visible structure (including Focus and folding) next to the source note, with numbered filenames to avoid overwriting. PNG defaults to 2x; 1x/2x/3x are available in settings. Very large PNG dimensions are rejected with a suggestion to reduce scale or use SVG.
 
 Folding, zoom, viewport center, Focus, Reading position, selection and layout are stored in plugin data by source path. Rename/move migrates saved state; deletion removes it. Multiple tabs interact independently; the most recent user interaction owns the saved state. Settings provide automatic refresh, remembered state/reset, default layout, animation/duration and PNG scale. **View** explores the note; **Edit** writes changes to the source Markdown and provides its own editing history.
 
@@ -56,7 +56,7 @@ Folding, zoom, viewport center, Focus, Reading position, selection and layout ar
 2. Rename **Untitled** with F2 / double-click. This is the document name, not automatically a Markdown H1 or a file.
 3. Select a node and press Enter for a sibling, Tab for a child, or click the `+` shown on hover/focus. Type **inside the node**. Enter confirms without creating another node; press Enter again to start the next sibling. Tab while editing confirms and starts a child. Esc cancels the rename or the unfinished new node. Double-click / F2 edits an existing title in place.
 4. Selection shows a one-line **direct body** preview at the bottom of the canvas. Click it (or **Add body…**) or press Ctrl/Cmd+Enter to open the right editor. The root body is the introduction. The editor stays closed until requested; **View → Body: Auto / Show / Hide**, Pin and the divider remain available.
-5. Choose **Create Note**, review the export options and Markdown preview, then create the file. The current tab becomes **Organic Edit**.
+5. Choose **Create Note**. The dialog separates **Destination** from **Content**: entering a name and existing vault folder shows the target `.md` path, while Idea and Inbox export choices appear only when the draft contains that content. Preview the Markdown if needed, then create the note. The current tab becomes **Organic Edit**.
 
 The root suggests a filename, which can be changed independently in the create dialog. **Document name only** exports children as H1; **Use root as H1** exports the root as H1 and children as H2. Structural operations and root-behavior changes validate the complete subtree against H6. Create section headings as map nodes, rather than placing headings in a heading node's body.
 
@@ -65,6 +65,7 @@ The root suggests a filename, which can be changed independently in the create d
 - **Ctrl/Cmd+click** adds/removes a selection; **Shift+click** selects a visible range. Body editing applies to the primary selected node. Type changes apply to all selected non-root nodes.
 - Right-click → **Create parent from selection** groups siblings and edits the new parent inline. **Duplicate** copies selected branches with fresh IDs. Both preserve bodies, metadata and descendants.
 - Drag a node to move its **complete subtree**, or drag a multi-selection as a batch. The top/bottom of a target inserts **before/after** with an insertion line; its middle makes the branch a **child**, highlighted on the target. There is no three-choice popup. A larger exit region and boundary tolerance prevent small pointer movements from losing the target. Cycles, moving the root and excessive heading depth are rejected.
+- Within a Composer session, adding or renaming headings keeps existing top-level branches on their assigned sides, preventing the map from jumping off screen when a second child heading is added.
 - Drag to the canvas edge to pan or the Inbox edge to scroll. Esc cancels a drag. Existing promote/demote/reorder shortcuts remain; batch deletion still offers the keep-children choice. Each completed structural action is one undo step.
 - The selected-node toolbar contains only `…`. Focus, node types, duplication and advanced branch actions live in the context menu; document properties, templates and export tools live in the global `…`. Redundant Add / Move menu entries have been removed.
 - **Node type → Heading / Idea / Todo** remains an advanced option. Idea nodes retain a `?` prefix; Todo nodes retain clickable completion checkboxes. Newly created map nodes are headings.
@@ -91,7 +92,7 @@ Use **New Composer from template** in the command palette, or **⋯ → New from
 
 ### Export and saving
 
-**Create Note** checks structure and filenames, uses an existing vault folder, and never overwrites another note. The root-name suggestion and filename can differ. An empty export requires confirmation. **Preview Markdown** shows the same generated text used for creation.
+**Create Note** checks structure and filenames, uses an existing vault folder, shows the destination path as you type, and never overwrites another note. The root-name suggestion and filename can differ. An empty export requires confirmation. **Preview Markdown** shows the same generated text used for creation.
 
 | Content | Export behavior |
 | --- | --- |
@@ -125,9 +126,12 @@ Excluding an Idea excludes its whole branch. Whenever any content is excluded, t
 
 Horizontal, Radial and Compact reuse Organic's layout and renderer. Composer remembers its layout and panel width defaults independently of Organic.
 
-Composer, Inbox, draft management, templates and Create Note follow the plugin's **Automatic / English / 简体中文** language setting. Open Composer views update when the setting changes; command-palette names update after reloading the plugin. Existing titles and bodies are never translated. Draft schema version 1 remains compatible; unfinished inline titles are not autosaved until committed.
+Composer, Inbox, draft management, templates and Create Note follow the plugin's **Automatic / English / 简体中文** language setting. Organic's View/Edit and Reader buttons, layout labels, and some status messages also use the selected language. Open Composer views update when the setting changes; command-palette names update after reloading the plugin. Existing titles and bodies are never translated. Draft schema version 1 remains compatible; unfinished inline titles are not autosaved until committed.
 
-The current Composer remains a document tree. The proposed v2 features—non-tree relationships, shared ideas and free-form knowledge mapping—are not implemented.
+Composer also offers **Structured / Sketch** in the toolbar. Structured keeps automatic layout and outline editing. Sketch adds saved free placement: drag a heading or free note, double-click empty paper to add a free note, and use **Arrange layout** to clear manual heading positions. Use **Connect** and click two objects to add a dashed relationship without changing the outline; select a connection and press Delete to remove it. The small tool tray adds arrows, circles, highlights and text notes. Select and drag an annotation to move it, double-click a text note to edit it, or select and press Delete. Drag an Inbox idea onto the Sketch canvas to copy it into a free note; the Inbox original stays intact. Right-click a free note to convert it into a Markdown heading.
+On desktop, Sketch keeps the body panel open so selecting a note does not shift the canvas. Close Body hides it until you choose to reopen it. Drawing and Connect tools return to Select after one completed action; Escape cancels the active tool.
+
+Sketch positions, free notes, connections and annotations are saved with the Composer draft in plugin data (schema version 1 remains readable). They do not enter exported Markdown. If a created Markdown note still has separate canvas objects, the Composer draft is retained; its `createdPath` follows vault rename/move events. Composer is a draft-to-note workflow, so later edits to the created note in Organic are not synced back into that retained draft.
 
 ## Edit / Mind Map Writing
 
@@ -208,6 +212,8 @@ The existing features below describe **Native Canvas**. Its title/body content o
 > If the plugin does not appear in the list, make sure all three files are located directly inside `.obsidian/plugins/canvas-mind-map/`, then restart Obsidian.
 
 Requires **Obsidian 1.7.7 or later**.
+
+In **Settings → Canvas Mind Map → Mind map appearance**, choose one of four reference wallpapers: Mineral ink · Teal, Warm paper · Cinnabar, Mint leaves, or Sakura lake. The original plain white **Default** style remains available. The selection applies to Composer, Organic, and Canvas mind maps. All four wallpapers are bundled into `main.js`, so manual installation still needs only the three files above.
 
 If you previously used the mind map functionality from Enhanced Canvas, disable the old plugin first. Existing mind map metadata from the old implementation is currently not compatible.
 

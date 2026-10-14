@@ -148,12 +148,17 @@
 .cmm-organic-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 8px 12px;
+    padding: 10px 16px 8px;
     border-bottom: 1px solid var(--background-modifier-border);
     flex-wrap: wrap;
 }
-.cmm-organic-status { color: var(--text-muted); font-size: 12px; }
+.cmm-organic-toolbar-navigation, .cmm-organic-toolbar-tools { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cmm-organic-toolbar-navigation { flex: 1 1 auto; flex-wrap: wrap; }
+.cmm-organic-toolbar-tools { flex: 0 1 auto; overflow-x: auto; max-width: 100%; padding-bottom: 2px; }
+.cmm-organic-toolbar-tools > button { flex-shrink: 0; }
+.cmm-organic-toolbar select { max-width: min(240px, 100%); }
+.cmm-organic-status { flex-basis: 100%; color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmm-organic-surface { flex: 1; width: 100%; min-height: 0; touch-action: none; cursor: grab; }
 .cmm-organic-surface:active { cursor: grabbing; }
 .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
@@ -226,6 +231,18 @@
 .cmm-composer-drop.is-invalid { height: auto; max-width: 260px; padding: 5px 8px; background: var(--background-primary); color: var(--text-error); font-size: 12px; }
 .cmm-composer-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .cmm-composer-field[hidden] { display: none; }
+.cmm-composer-create-modal { display: grid; gap: 14px; }
+.cmm-composer-create-section { padding: 14px 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); }
+.cmm-composer-create-section h3 { margin: 0 0 10px; font-size: var(--font-ui-medium); }
+.cmm-composer-create-section .cmm-composer-field { margin: 10px 0; }
+.cmm-composer-create-section input:not([type="checkbox"]), .cmm-composer-create-section select { width: 100%; box-sizing: border-box; }
+.cmm-composer-create-path, .cmm-composer-create-summary, .cmm-composer-create-help { color: var(--text-muted); font-size: var(--font-ui-small); line-height: 1.45; }
+.cmm-composer-create-path { overflow-wrap: anywhere; }
+.cmm-composer-create-help { margin: 10px 0 0; }
+.cmm-composer-create-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cmm-composer-create-actions button:first-child { margin-right: auto; }
+.cmm-composer-create-modal [role="alert"]:empty { display: none; }
+.cmm-composer-create-modal [role="alert"] { margin: 0; color: var(--text-error); }
 .cmm-composer-recovery { width: 100%; min-height: 240px; }
 .cmm-composer-draft-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 0; }
 .cmm-composer-search { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--background-modifier-border); }
@@ -311,3 +328,463 @@ textarea.cmm-writing-draft-discard { width: 100%; height: 220px; }
 .cmm-composer [data-icon], .cmm-composer button:has(> .svg-icon) { min-width: 30px; }
 .cmm-composer button { font-family: var(--font-interface); }
 .cmm-composer-ideas-entry:focus-visible, .cmm-composer button:focus-visible, .cmm-composer-context select:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+
+/* The view owns its paper palette; Obsidian's surrounding chrome stays untouched. */
+.cmm-organic-view {
+    --cmm-paper: #f6f1e7;
+    --cmm-paper-raised: #fbf8f1;
+    --cmm-ink: #34342f;
+    --cmm-muted: #716f65;
+    --cmm-branch: #8c887d;
+    --cmm-rule: #d7d0c1;
+    --cmm-accent: #a34d3e;
+    --cmm-accent-soft: rgba(163, 77, 62, .11);
+    color: var(--cmm-ink);
+    background: var(--cmm-paper);
+}
+.cmm-organic-view .cmm-organic-toolbar,
+.cmm-organic-view .cmm-composer-toolbar {
+    background: var(--cmm-paper-raised);
+    border-bottom: 1px solid var(--cmm-rule);
+    color: var(--cmm-ink);
+}
+.cmm-organic-view .cmm-organic-toolbar button,
+.cmm-organic-view .cmm-organic-toolbar select,
+.cmm-organic-view .cmm-composer-toolbar button,
+.cmm-organic-view .cmm-composer-context button,
+.cmm-organic-view .cmm-composer-context select,
+.cmm-organic-view .cmm-composer-ideas-entry,
+.cmm-organic-view .cmm-composer-breadcrumb button {
+    color: var(--cmm-ink);
+    border: 1px solid transparent;
+    box-shadow: none;
+}
+.cmm-organic-view .cmm-organic-toolbar button:hover,
+.cmm-organic-view .cmm-composer button:hover,
+.cmm-organic-view .cmm-organic-toolbar select:hover {
+    background: var(--cmm-accent-soft);
+    border-color: var(--cmm-rule);
+}
+.cmm-organic-view .cmm-composer-toolbar .mod-cta {
+    background: var(--cmm-accent); color: var(--cmm-paper-raised);
+    border-color: var(--cmm-accent); border-radius: 7px;
+}
+.cmm-organic-view .cmm-composer-toolbar .mod-cta:hover { filter: brightness(1.08); background: var(--cmm-accent); }
+.cmm-organic-view .cmm-organic-status,
+.cmm-organic-view .cmm-composer-status,
+.cmm-organic-view .cmm-composer-key-hint,
+.cmm-organic-view .cmm-composer-empty-hint { color: var(--cmm-muted); }
+.cmm-organic-view .cmm-organic-branches path { stroke-linecap: round; stroke-linejoin: round; opacity: .84; }
+.cmm-organic-view:not(.cmm-composer) .cmm-organic-branches path { filter: saturate(.62); }
+.cmm-organic-view:not(.cmm-composer) .cmm-organic-node.is-root .cmm-organic-hitbox {
+    fill: var(--cmm-paper-raised); stroke: var(--cmm-rule);
+}
+.cmm-organic-view .cmm-organic-node.is-root text { fill: var(--cmm-ink); }
+.cmm-organic-view:not(.cmm-composer) .cmm-organic-node.is-selected .cmm-organic-hitbox,
+.cmm-organic-view:not(.cmm-composer) .cmm-organic-node.is-reading .cmm-organic-hitbox,
+.cmm-organic-view:not(.cmm-composer) .cmm-organic-node.is-current-match .cmm-organic-hitbox {
+    stroke: var(--cmm-accent);
+}
+.cmm-organic-view .cmm-writing-toolbar [aria-pressed="true"] {
+    background: var(--cmm-accent); color: var(--cmm-paper-raised);
+}
+.cmm-composer .cmm-organic-branches path { stroke-dasharray: 1 0; }
+/* Composer sketch paper and its objects stay scoped to this view. */
+.cmm-composer.is-sketch .cmm-composer-stage { background-color: #fbfaf7; }
+.theme-dark .cmm-composer.is-sketch .cmm-composer-stage { background-color: #292a29; }
+.cmm-composer .cmm-composer-mode[aria-pressed="true"] { color: var(--text-normal); background: var(--background-modifier-hover); }
+.cmm-composer-sketch-tools { position: absolute; z-index: 3; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 4px; border: 1px solid var(--cmm-rule, var(--background-modifier-border)); border-radius: 11px; background: var(--cmm-paper-raised, var(--background-primary)); box-shadow: 0 4px 18px rgba(37, 54, 50, .08); }
+.cmm-composer-sketch-tools[hidden], .cmm-composer-toolbar button[hidden] { display: none; }
+.cmm-composer .cmm-composer-sketch-tools button { font-size: 12px; padding: 6px 9px; white-space: nowrap; border: 0; border-radius: 7px; box-shadow: none; background: transparent; color: var(--text-muted); }
+.cmm-composer .cmm-composer-sketch-tools button:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.cmm-composer-sketch-tools button[aria-pressed="true"] { background: var(--cmm-accent-soft, var(--background-modifier-hover)); color: var(--cmm-ink, var(--text-normal)); box-shadow: inset 0 0 0 1px var(--cmm-accent, var(--interactive-accent)); }
+.cmm-composer.is-sketch .cmm-organic-branches path { stroke-width: 1.5px; stroke-linecap: round; opacity: .78; }
+.cmm-composer.is-sketch .cmm-branch-echo { opacity: .12; }
+.cmm-composer.is-sketch .cmm-organic-node .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
+.cmm-composer.is-sketch .cmm-organic-node.is-root .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
+.cmm-composer.is-sketch .cmm-organic-node[data-cmm-depth="1"] .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
+.cmm-composer.is-sketch .cmm-organic-node.is-selected .cmm-organic-hitbox { stroke: var(--interactive-accent); stroke-width: 1.4px; }
+.cmm-composer.is-sketch .cmm-organic-node [role="link"] text { font-family: var(--font-text); letter-spacing: .005em; }
+.cmm-composer.is-sketch .cmm-sketch-outline { fill: var(--cmm-paper-raised, var(--background-primary)); stroke: var(--cmm-sketch-branch, var(--cmm-branch)); stroke-width: 1.35px; stroke-linecap: round; pointer-events: none; opacity: .92; }
+.cmm-composer.is-sketch .cmm-organic-node.is-root .cmm-sketch-outline { fill: var(--cmm-accent-soft, rgba(115, 156, 145, .12)); stroke-width: 1.9px; }
+.cmm-composer.is-sketch .cmm-sketch-outline-echo { fill: none; stroke: var(--cmm-sketch-branch, var(--cmm-branch)); stroke-width: .9px; opacity: .4; pointer-events: none; }
+.cmm-composer.is-sketch .cmm-sketch-underline { fill: none; stroke: var(--cmm-sketch-branch, var(--cmm-branch)); stroke-width: 1.1px; opacity: .68; pointer-events: none; }
+.cmm-composer .cmm-sketch-link { fill: none; stroke: var(--cmm-branch, var(--text-muted)); stroke-width: 2px; stroke-dasharray: 6 5; stroke-linecap: round; cursor: pointer; pointer-events: stroke; }
+.cmm-composer .cmm-sketch-link.is-selected { stroke: var(--interactive-accent); stroke-width: 3px; }
+.cmm-composer .cmm-sketch-note { cursor: grab; }
+.cmm-composer .cmm-sketch-note-paper { fill: var(--cmm-note-paper, var(--cmm-paper-raised, var(--background-primary))); stroke: var(--cmm-rule, var(--background-modifier-border)); stroke-width: 1px; }
+.cmm-composer .cmm-sketch-note-accent { fill: none; stroke: var(--cmm-accent, #72958b); stroke-width: 2px; opacity: .6; pointer-events: none; }
+.cmm-composer .cmm-sketch-note.is-selected .cmm-sketch-note-paper { stroke: var(--cmm-accent, var(--interactive-accent)); stroke-width: 2px; }
+.theme-dark .cmm-composer .cmm-sketch-note { --cmm-note-paper: #343937 !important; }
+.cmm-composer .cmm-sketch-note text { fill: var(--text-normal); font-size: 15px; font-weight: 600; pointer-events: none; }
+.cmm-composer .cmm-sketch-note .cmm-sketch-note-preview { fill: var(--text-muted); font-size: 11px; font-weight: 400; }
+.cmm-composer .cmm-sketch-annotation { fill: none; stroke: var(--cmm-branch, var(--text-muted)); stroke-width: 1.8px; stroke-linecap: round; cursor: pointer; }
+.cmm-composer .cmm-sketch-annotation .cmm-sketch-mark { fill: none; pointer-events: none; }
+.cmm-composer .cmm-sketch-annotation .cmm-sketch-mark-hit { fill: none; stroke: transparent; stroke-width: 14px; pointer-events: stroke; }
+.cmm-composer .cmm-sketch-annotation.is-selected .cmm-sketch-mark { stroke: var(--interactive-accent); }
+.cmm-composer .cmm-sketch-annotation.is-highlight .cmm-sketch-mark { stroke: #e4c967; stroke-width: 9px; opacity: .38; }
+.theme-dark .cmm-composer .cmm-sketch-annotation.is-highlight .cmm-sketch-mark { stroke: #baa45b; opacity: .3; }
+.cmm-composer .cmm-sketch-annotation.is-ellipse .cmm-sketch-mark { stroke-width: 1.65px; }
+.cmm-composer .cmm-sketch-annotation.is-text { stroke: none; }
+.cmm-composer .cmm-sketch-caption-paper { fill: var(--cmm-paper-raised, var(--background-primary)); fill-opacity: .93; stroke: var(--cmm-rule, var(--background-modifier-border)); stroke-width: .8px; }
+.cmm-composer .cmm-sketch-caption { fill: var(--text-normal); font-size: 13px; font-family: var(--font-text); }
+.cmm-composer .cmm-sketch-arrow-tip { fill: none; stroke: var(--cmm-branch, var(--text-muted)); stroke-width: 1.8px; pointer-events: none; }
+.cmm-composer .cmm-sketch-handle { fill: var(--cmm-paper-raised, var(--background-primary)); stroke: var(--interactive-accent); stroke-width: 1.3px; cursor: move; pointer-events: all; }
+.cmm-composer .cmm-sketch-preview { opacity: .6; pointer-events: none; }
+.cmm-composer .cmm-sketch-preview .cmm-sketch-mark { stroke-dasharray: 4 3; }
+.cmm-composer .cmm-organic-node.is-root .cmm-organic-hitbox {
+    fill: var(--cmm-paper-raised); stroke: var(--cmm-rule); stroke-width: 1.25;
+}
+.cmm-composer .cmm-organic-node:not(.is-root) .cmm-organic-hitbox { fill: var(--cmm-paper-raised); fill-opacity: .68; }
+.cmm-composer .cmm-organic-node:hover .cmm-organic-hitbox { fill: var(--cmm-accent-soft); }
+.cmm-composer .cmm-organic-node.is-selected .cmm-organic-hitbox,
+.cmm-composer .cmm-organic-node.is-multiselected .cmm-organic-hitbox,
+.cmm-composer .cmm-organic-node.is-editing .cmm-organic-hitbox {
+    fill: var(--cmm-accent-soft); stroke: var(--cmm-accent); stroke-width: 1.7;
+}
+.cmm-organic-view .cmm-organic-toggle circle { fill: var(--cmm-paper-raised); }
+.cmm-composer .cmm-composer-node-add rect { fill: var(--cmm-paper-raised); stroke: var(--cmm-rule); stroke-width: 1; }
+.cmm-composer .cmm-composer-node-add text { fill: var(--cmm-ink); }
+.cmm-organic-view .cmm-composer-unsorted,
+.cmm-organic-view .cmm-composer-body,
+.cmm-organic-view .cmm-writing-editor,
+.cmm-organic-view .cmm-organic-reader {
+    background: var(--cmm-paper-raised); color: var(--cmm-ink);
+    border-color: var(--cmm-rule);
+}
+.cmm-organic-view .cmm-composer-divider,
+.cmm-organic-view .cmm-writing-divider { border-color: var(--cmm-rule); background: var(--cmm-rule); }
+.cmm-organic-view .cmm-composer-capture,
+.cmm-organic-view .cmm-composer-inbox-search,
+.cmm-organic-view .cmm-composer-body textarea,
+.cmm-organic-view .cmm-writing-editor-content .cm-editor {
+    color: var(--cmm-ink); background: transparent; border-color: var(--cmm-rule);
+}
+.cmm-organic-view .cmm-composer-unsorted-node {
+    border-bottom: 1px solid var(--cmm-rule); border-radius: 3px;
+}
+.cmm-organic-view .cmm-composer-unsorted-node.is-selected { background: var(--cmm-accent-soft); }
+.cmm-organic-view .cmm-composer-body-preview {
+    background: var(--cmm-paper-raised); color: var(--cmm-muted);
+    border: 1px solid var(--cmm-rule); border-radius: 6px; padding: 6px 10px;
+}
+
+/* Shared appearance tokens; four wallpapers and the plain default use one diagram language. */
+.cmm-organic-view[data-cmm-appearance],
+.cmm-themed-canvas[data-cmm-appearance] {
+    --cmm-paper: #faf9f6;
+    --cmm-paper-raised: rgba(255, 254, 252, .96);
+    --cmm-toolbar: rgba(255, 254, 252, .97);
+    --cmm-ink: #303632;
+    --cmm-muted: #67716c;
+    --cmm-branch: #69746e;
+    --cmm-rule: rgba(53, 65, 57, .18);
+    --cmm-accent: #60847a;
+    --cmm-accent-soft: rgba(96, 132, 122, .10);
+    --cmm-action: #536f65;
+    --cmm-action-text: #fff;
+    --cmm-node-shadow: 0 2px 9px rgba(31, 40, 34, .055);
+    --cmm-wash-a: rgba(70, 78, 72, .037);
+    --cmm-wash-b: rgba(90, 113, 103, .032);
+    --cmm-wash-c: rgba(70, 85, 79, .022);
+    --cmm-fiber: rgba(86, 76, 60, .006);
+    --cmm-motif: linear-gradient(transparent, transparent);
+    --cmm-parallax-x: 0px;
+    --cmm-parallax-y: 0px;
+    color: var(--cmm-ink);
+    background-color: var(--cmm-paper);
+}
+
+/* 7 · A completely plain white drawing surface. */
+.cmm-organic-view[data-cmm-appearance="white"],
+.cmm-themed-canvas[data-cmm-appearance="white"] {
+    --cmm-paper: #fff;
+    --cmm-paper-raised: #fff;
+    --cmm-toolbar: #fff;
+    --cmm-ink: #272d2a;
+    --cmm-muted: #68726c;
+    --cmm-branch: #78817b;
+    --cmm-rule: rgba(54, 66, 58, .18);
+    --cmm-accent: #6e8378;
+    --cmm-accent-soft: rgba(110, 131, 120, .09);
+    --cmm-action: #52685c;
+    --cmm-node-shadow: none;
+}
+
+/* Shared, fixed-cost background layers move only a few pixels during pan/zoom. */
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-stage,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-surface,
+.cmm-themed-canvas[data-cmm-appearance] .canvas-wrapper {
+    background-color: var(--cmm-paper);
+    background-image:
+        var(--cmm-motif),
+        radial-gradient(ellipse 60% 50% at 14% 20%, var(--cmm-wash-a), transparent 100%),
+        radial-gradient(ellipse 56% 52% at 88% 78%, var(--cmm-wash-b), transparent 100%),
+        radial-gradient(ellipse 38% 39% at 88% 10%, var(--cmm-wash-c), transparent 100%),
+        repeating-linear-gradient(31deg, var(--cmm-fiber) 0 1px, transparent 1px 13px);
+    background-size: 116% 116%, 122% 122%, 127% 127%, 118% 118%, auto;
+    background-position:
+        calc(50% + var(--cmm-parallax-x)) calc(50% + var(--cmm-parallax-y)),
+        calc(50% - var(--cmm-parallax-x)) calc(50% - var(--cmm-parallax-y)),
+        calc(50% + var(--cmm-parallax-x)) calc(50% + var(--cmm-parallax-y)),
+        calc(50% - var(--cmm-parallax-x)) calc(50% - var(--cmm-parallax-y)),
+        0 0;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat;
+}
+.cmm-organic-view[data-cmm-appearance="white"] .cmm-composer-stage,
+.cmm-organic-view[data-cmm-appearance="white"] .cmm-organic-surface,
+.cmm-themed-canvas[data-cmm-appearance="white"] .canvas-wrapper {
+    background: #fff;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-writing-map { background: var(--cmm-paper); }
+.cmm-composer[data-cmm-appearance] .cmm-organic-surface { background: transparent; }
+.cmm-themed-canvas[data-cmm-appearance] .canvas-background { background: transparent !important; }
+
+/* Diagram marks use the same weight and rhythm across all presets. */
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-toolbar,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-toolbar {
+    min-height: 52px;
+    background: var(--cmm-toolbar);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-toolbar .mod-cta,
+.cmm-organic-view[data-cmm-appearance] .cmm-writing-toolbar [aria-pressed="true"] {
+    background: var(--cmm-action);
+    border-color: var(--cmm-action);
+    color: var(--cmm-action-text);
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-toolbar .mod-cta:hover { background: var(--cmm-action); filter: brightness(1.04); }
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-toolbar .cmm-composer-document-name,
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-ideas-entry,
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-body-preview {
+    background: var(--cmm-paper-raised);
+    border: 1px solid var(--cmm-rule);
+    border-radius: 9px;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-toolbar .cmm-composer-document-name { padding: 5px 12px; font-weight: 650; }
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-ideas-entry { padding: 6px 12px; }
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-unsorted,
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-body,
+.cmm-organic-view[data-cmm-appearance] .cmm-writing-editor,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-reader {
+    background: var(--cmm-paper-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-branches path:not(.cmm-branch-echo) {
+    stroke: var(--cmm-branch);
+    opacity: .88;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-branch-echo { opacity: .06; pointer-events: none; }
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-hitbox {
+    fill: var(--cmm-paper-raised);
+    stroke: var(--cmm-rule);
+    stroke-width: 1px;
+    filter: none;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node:hover .cmm-organic-hitbox { stroke: var(--cmm-accent); }
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node.is-selected .cmm-organic-hitbox,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node.is-multiselected .cmm-organic-hitbox,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node.is-editing .cmm-organic-hitbox,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node.is-reading .cmm-organic-hitbox,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node.is-current-match .cmm-organic-hitbox {
+    fill: var(--cmm-paper-raised);
+    stroke: var(--cmm-accent);
+    stroke-width: 1.6px;
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-node text,
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-toggle text { fill: var(--cmm-ink); }
+.cmm-organic-view[data-cmm-appearance] .cmm-organic-toggle circle {
+    fill: var(--cmm-paper-raised);
+    stroke: var(--cmm-branch);
+}
+.cmm-organic-view[data-cmm-appearance] .cmm-composer-node-add rect {
+    fill: var(--cmm-paper-raised);
+    stroke: var(--cmm-accent);
+}
+
+/* Native Canvas keeps manually customized colors; only automatic marks receive the palette. */
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node[data-cmm-depth] .canvas-node-container {
+    border: 1px solid var(--cmm-rule);
+    border-radius: 11px;
+    box-shadow: var(--cmm-node-shadow);
+}
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node[data-cmm-depth="0"] .canvas-node-container { border-width: 1.4px; }
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node[data-cmm-depth]:hover .canvas-node-container,
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node[data-cmm-depth].is-selected .canvas-node-container {
+    border-color: var(--cmm-accent);
+}
+
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-composer-stage,
+.cmm-composer.is-sketch[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-stage {
+    background-image: none !important;
+    background-color: #fbfaf7;
+}
+.theme-dark .cmm-composer.is-sketch[data-cmm-appearance] .cmm-composer-stage { background-color: #292a29; }
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node .cmm-organic-hitbox { fill: transparent; stroke: transparent; filter: none; }
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node.is-root .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node[data-cmm-depth="1"] .cmm-organic-hitbox { fill: transparent; stroke: transparent; }
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node.is-selected .cmm-organic-hitbox { stroke: var(--interactive-accent); stroke-width: 1.4px; }
+.cmm-composer.is-sketch[data-cmm-appearance] { background-image: none !important; background-color: #fbfaf7; }
+.theme-dark .cmm-composer.is-sketch[data-cmm-appearance] { background-color: #292a29; }
+@media (max-width: 900px) {
+    .cmm-composer-sketch-tools { left: 10px; right: 10px; transform: none; max-width: calc(100% - 20px); flex-wrap: wrap; }
+    .cmm-composer-toolbar .cmm-composer-document-name { max-width: 24%; }
+}
+
+/* Four reference wallpapers. Keep the original plain default preset above. */
+.cmm-organic-view[data-cmm-appearance="ink"],
+.cmm-themed-canvas[data-cmm-appearance="ink"] {
+    --cmm-paper: #f5f9f7;
+    --cmm-paper-raised: rgba(255, 255, 253, .87);
+    --cmm-toolbar: rgba(248, 252, 250, .80);
+    --cmm-ink: #233d3c;
+    --cmm-muted: #687b7e;
+    --cmm-branch: #799895;
+    --cmm-rule: rgba(99, 141, 139, .23);
+    --cmm-accent: #608a84;
+    --cmm-accent-soft: rgba(104, 151, 144, .10);
+    --cmm-action: #527570;
+}
+.cmm-organic-view[data-cmm-appearance="cinnabar"],
+.cmm-themed-canvas[data-cmm-appearance="cinnabar"] {
+    --cmm-paper: #faf5ee;
+    --cmm-paper-raised: rgba(255, 251, 246, .89);
+    --cmm-toolbar: rgba(255, 249, 242, .80);
+    --cmm-ink: #382f2b;
+    --cmm-muted: #736b65;
+    --cmm-branch: #857a72;
+    --cmm-rule: rgba(152, 120, 106, .24);
+    --cmm-accent: #aa6559;
+    --cmm-accent-soft: rgba(178, 107, 91, .10);
+    --cmm-action: #a45f54;
+}
+.cmm-organic-view[data-cmm-appearance="breeze"],
+.cmm-themed-canvas[data-cmm-appearance="breeze"] {
+    --cmm-paper: #f3fffd;
+    --cmm-paper-raised: rgba(249, 255, 253, .80);
+    --cmm-toolbar: rgba(246, 255, 253, .72);
+    --cmm-ink: #254b50;
+    --cmm-muted: #749398;
+    --cmm-branch: #7ca7a0;
+    --cmm-rule: rgba(115, 176, 167, .23);
+    --cmm-accent: #78aaa2;
+    --cmm-accent-soft: rgba(130, 190, 181, .11);
+    --cmm-action: #66998d;
+}
+.cmm-organic-view[data-cmm-appearance="violet"],
+.cmm-themed-canvas[data-cmm-appearance="violet"] {
+    --cmm-paper: #fff5f9;
+    --cmm-paper-raised: rgba(255, 249, 253, .82);
+    --cmm-toolbar: rgba(255, 245, 250, .76);
+    --cmm-ink: #503748;
+    --cmm-muted: #96788b;
+    --cmm-branch: #c68dac;
+    --cmm-rule: rgba(205, 148, 177, .23);
+    --cmm-accent: #c78eaa;
+    --cmm-accent-soft: rgba(221, 155, 185, .10);
+    --cmm-action: #bc849f;
+    --cmm-action-text: #fff;
+}
+
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) {
+    background-image: var(--cmm-art);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-stage {
+    background: transparent;
+}
+.cmm-organic-view[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-organic-surface,
+.cmm-themed-canvas[data-cmm-appearance]:not([data-cmm-appearance="white"]) .canvas-wrapper {
+    background-color: var(--cmm-paper);
+    background-image: var(--cmm-art);
+    background-size: cover;
+    background-position: calc(50% + var(--cmm-parallax-x)) calc(50% + var(--cmm-parallax-y));
+    background-repeat: no-repeat;
+}
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-toolbar,
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-status {
+    background: var(--cmm-toolbar);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-unsorted,
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-body {
+    margin: 6px;
+    border: 1px solid var(--cmm-rule);
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(35, 50, 46, .07);
+    backdrop-filter: blur(9px);
+    -webkit-backdrop-filter: blur(9px);
+}
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-composer-body,
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-composer-unsorted {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--background-primary);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-composer-body { border-left: 1px solid var(--cmm-rule, var(--background-modifier-border)); }
+.cmm-composer.is-sketch .cmm-composer-stage > svg { user-select: none; -webkit-user-select: none; }
+.cmm-composer.is-sketch .cmm-organic-node .cmm-organic-hitbox { fill: transparent !important; stroke: none !important; }
+.cmm-composer.is-sketch .cmm-organic-node.is-selected .cmm-sketch-outline,
+.cmm-composer.is-sketch .cmm-organic-node.is-selected .cmm-sketch-underline { stroke: var(--interactive-accent); }
+.cmm-composer .cmm-sketch-annotation.is-ellipse .cmm-sketch-mark { stroke: #c78478; opacity: .85; }
+.cmm-composer.is-sketch .cmm-composer-body { padding: 22px clamp(18px, 3vw, 42px); gap: 16px; }
+.cmm-composer.is-sketch .cmm-composer-body textarea { font-family: var(--font-text); font-size: 15px; line-height: 1.78; letter-spacing: .005em; padding: 6px 0; box-shadow: none; }
+.cmm-composer.is-sketch .cmm-composer-breadcrumb { padding-bottom: 13px; border-bottom: 1px solid var(--cmm-rule, var(--background-modifier-border)); }
+.cmm-composer.is-sketch .cmm-composer-unsorted { padding: 20px 16px; border-right: 1px solid var(--cmm-rule, var(--background-modifier-border)); }
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-composer-divider {
+    border: 0;
+    background: transparent;
+}
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-organic-hitbox {
+    fill: var(--cmm-paper-raised);
+    stroke: var(--cmm-rule);
+    filter: drop-shadow(0 3px 5px rgba(35, 50, 46, .07));
+}
+.cmm-composer[data-cmm-appearance]:not([data-cmm-appearance="white"]) .cmm-organic-node.is-root .cmm-organic-hitbox {
+    stroke: var(--cmm-accent);
+    stroke-width: 1.4px;
+}
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node.is-root .cmm-organic-hitbox,
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node[data-cmm-depth="1"] .cmm-organic-hitbox {
+    fill: transparent;
+    stroke: transparent;
+}
+.cmm-composer.is-sketch[data-cmm-appearance] .cmm-organic-node.is-selected .cmm-organic-hitbox {
+    stroke: var(--cmm-accent);
+}
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node.cmm-native-auto-color .canvas-node-container {
+    background: var(--cmm-paper-raised) !important;
+}
+.cmm-themed-canvas[data-cmm-appearance] .canvas-node.cmm-native-auto-color .markdown-preview-view { color: var(--cmm-ink); }
+.cmm-themed-canvas[data-cmm-appearance] .canvas-edge path { stroke-linecap: round; filter: none; }
+.cmm-themed-canvas[data-cmm-appearance] .cmm-native-auto-edge .canvas-display-path {
+    stroke: var(--cmm-branch) !important;
+    opacity: .88;
+}
+.cmm-themed-canvas[data-cmm-appearance] .cmm-mindmap-toggle {
+    background: var(--cmm-paper-raised);
+    color: var(--cmm-ink);
+    border: 1px solid var(--cmm-rule);
+    box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cmm-organic-view[data-cmm-appearance] .cmm-composer-stage,
+    .cmm-organic-view[data-cmm-appearance] .cmm-organic-surface,
+    .cmm-themed-canvas[data-cmm-appearance] .canvas-wrapper { background-position: center !important; }
+}

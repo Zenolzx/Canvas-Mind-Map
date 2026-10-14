@@ -1,5 +1,8 @@
 const fs=require('node:fs'),path=require('node:path'),esbuild=require('esbuild');
 const dir=path.resolve('tmp/composer-browser');fs.mkdirSync(dir,{recursive:true});
+const artDir=path.join(dir,'assets');fs.mkdirSync(artDir,{recursive:true});
+for(const name of ['ink-landscape.webp','cinnabar-landscape.webp','mint-leaves.webp','sakura-lake.webp'])
+ fs.copyFileSync(path.resolve('assets',name),path.join(artDir,name));
 fs.writeFileSync(path.join(dir,'obsidian.cjs'),`
 const base=require('../../scripts/organic-browser-obsidian.cjs');Object.assign(exports,base);
 exports.ItemView=class extends base.ItemView {
@@ -38,10 +41,10 @@ HTMLElement.prototype.removeClass=function(...names){this.classList.remove(...na
 HTMLElement.prototype.createEl=function(tag,options={}){const el=document.createElement(tag);if(options.text)el.textContent=options.text;if(options.cls)el.className=options.cls;for(const key of ['type','value'])if(options[key]!==undefined)el.setAttribute(key,options[key]);for(const [key,value] of Object.entries(options.attr||{}))el.setAttribute(key,value);this.append(el);return el;};
 HTMLElement.prototype.createDiv=function(options){return this.createEl('div',options);};
 HTMLElement.prototype.createSpan=function(options){return this.createEl('span',options);};
-const files=new Map(), contents=new Map();files.set('/',new TFolder('/'));files.set('Projects',new TFolder('Projects'));
+const files=new Map(), contents=new Map();files.set('/',new TFolder('/'));files.set('Projects',new TFolder('Projects'));files.set('Projects/Research',new TFolder('Projects/Research'));
 let disk={},writes=0,created=0,handoff=null,fail=false;
 const store=new ComposerStore(undefined,async()=>{if(fail)throw new Error('disk full');disk=JSON.parse(JSON.stringify(store.data));writes++;});
-const app={scope:{},vault:{on(){},getAbstractFileByPath:p=>files.get(p),read:async f=>contents.get(f.path),process:async(f,fn)=>{const text=fn(contents.get(f.path));contents.set(f.path,text);return text;},create:async(p,text)=>{if(files.has(p))throw new Error('File exists');const f=new TFile(p);files.set(p,f);contents.set(p,text);created++;return f;}},workspace:{requestSaveLayout(){},getLeavesOfType(){return[];},iterateAllLeaves(){},getLeaf(){return{openFile:async()=>{}}}}};
+const app={scope:{},vault:{on(){},getRoot:()=>files.get('/'),getAllLoadedFiles:()=>Array.from(files.values()),getAbstractFileByPath:p=>files.get(p),read:async f=>contents.get(f.path),process:async(f,fn)=>{const text=fn(contents.get(f.path));contents.set(f.path,text);return text;},create:async(p,text)=>{if(files.has(p))throw new Error('File exists');const f=new TFile(p);files.set(p,f);contents.set(p,text);created++;return f;}},workspace:{requestSaveLayout(){},getLeavesOfType(){return[];},iterateAllLeaves(){},getLeaf(){return{openFile:async()=>{}}}}};
 const host=new ObsidianDocumentHost(app);
 const leaf={app,setViewState:async state=>{await view.onClose();view.contentEl.remove();const organic=new OrganicMindMapView(leaf,undefined,()=>({animation:false,autoRefresh:false}),host);leaf.view=organic;await organic.onOpen();await organic.setState(state.state,{history:false});handoff=state;},detach(){}};
 const view=new ComposerView(leaf,store);

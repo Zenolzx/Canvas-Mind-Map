@@ -65,8 +65,13 @@ export class OrganicMindMapRenderer {
         container.append(edges);
         for (const branch of result.branches) {
             const { start: s, control1: a, control2: b, end: e } = branch;
+            const d = `M ${s.x} ${s.y} C ${a.x} ${a.y} ${b.x} ${b.y} ${e.x} ${e.y}`;
             edges.append(svgElement(document, 'path', {
-                d: `M ${s.x} ${s.y} C ${a.x} ${a.y} ${b.x} ${b.y} ${e.x} ${e.y}`,
+                d, stroke: branch.color, 'stroke-width': branch.width * .7,
+                class: 'cmm-branch-echo', transform: 'translate(0.7 1.2)',
+            }));
+            edges.append(svgElement(document, 'path', {
+                d,
                 stroke: branch.color, 'stroke-width': branch.width, 'stroke-linecap': 'round',
                 'data-child-id': branch.childId,
             }));
@@ -75,6 +80,7 @@ export class OrganicMindMapRenderer {
             const group = existing.get(node.id) ?? svgElement(document, 'g', { 'data-node-id': node.id });
             group.replaceChildren(); group.setCssStyles({ opacity: '' });
             group.setAttribute('transform', `translate(${node.x} ${node.y})`);
+            group.setAttribute('data-cmm-depth', String(node.depth));
             group.setAttribute('class', `cmm-organic-node${node.depth === 0 ? ' is-root' : ''}`);
             container.append(group);
             if (actions.matches?.has(node.id)) group.classList.add('is-match');

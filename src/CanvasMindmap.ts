@@ -1,4 +1,5 @@
 import { buildMindMapModel } from './core/MindMapModel';
+import { updateAppearanceParallax } from './appearance/AppearanceParallax';
 import type { MindMapModel } from './core/MindMapModel';
 import { readSourceDocument, supportedSource } from './formats/SourceFormats';
 import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
@@ -81,6 +82,7 @@ export class CanvasMindmap {
                 },
                 requestFrame: (next: Canvas['requestFrame']) => function(this: Canvas) {
                     next.call(this);
+                    feature.updateAppearanceParallax(this);
                     feature.schedule(this);
                 },
                 requestSave: (next: Canvas['requestSave']) => function(this: Canvas, history?: boolean) {
@@ -249,6 +251,28 @@ export class CanvasMindmap {
     refreshLanguage(): void {
         for (const [canvas, focus] of this.reading) this.buildFocusBar(canvas, focus);
         this.eachCanvas(canvas => this.render(canvas, false));
+    }
+
+    refreshAppearance(): void {
+        this.eachCanvas(canvas => this.applyCanvasAppearance(canvas, canvas.getData()));
+    }
+
+    private applyCanvasAppearance(canvas: Canvas, data: CanvasData): void {
+        const content = canvas.view?.contentEl;
+        if (!content) return;
+        const themed = data.nodes.some(node => !!meta(node));
+        content.classList.toggle('cmm-themed-canvas', themed);
+        if (themed) { this.plugin.applyAppearance?.(content); this.updateAppearanceParallax(canvas); }
+        else this.plugin.clearAppearance?.(content);
+    }
+
+    private updateAppearanceParallax(canvas: Canvas): void {
+        const content = canvas.view?.contentEl;
+        if (!content?.classList.contains('cmm-themed-canvas') || content.dataset.cmmAppearance === 'white') return;
+        const surface = content.querySelector('.canvas-wrapper');
+        if (!surface) return;
+        const state = canvas.getState();
+        updateAppearanceParallax(surface, state.x, state.y, 1 + state.zoom * .1);
     }
 
     /** Focus folding is view-local: it never changes the serialized expansion flags. */
@@ -902,15 +926,22 @@ export class CanvasMindmap {
     }
 
     private clearDisplay(canvas: Canvas): void {
+        const content = canvas.view?.contentEl;
+        content?.classList.remove('cmm-themed-canvas');
+        if (content) this.plugin.clearAppearance?.(content);
         if (this.reading.has(canvas)) this.exitFocus(canvas);
         for (const node of canvas.nodes.values()) {
-            node.nodeEl.classList.remove(HIDDEN, DIM, 'cmm-native-heading');
+            node.nodeEl.classList.remove(HIDDEN, DIM, 'cmm-native-heading', 'cmm-native-auto-color');
             node.nodeEl.removeAttribute('data-cmm-depth');
             this.previewSizes.delete(node);
             this.refreshPreview(node, false);
             node.nodeEl.querySelector(`.${BUTTON}`)?.remove();
         }
-        for (const edge of canvas.edges.values()) { this.hideEdge(edge, false); this.dimEdge(edge, false); }
+        for (const edge of canvas.edges.values()) {
+            this.hideEdge(edge, false); this.dimEdge(edge, false);
+            edge.lineGroupEl.classList.remove('cmm-native-auto-edge');
+            edge.lineEndGroupEl.classList.remove('cmm-native-auto-edge');
+        }
     }
 
     private dimEdge(edge: CanvasEdge, dim: boolean): void {
@@ -961,6 +992,7 @@ export class CanvasMindmap {
     private render(canvas: Canvas, measure = true): void {
         if (this.stopped) return;
         const data = this.readingData(canvas, canvas.getData());
+        this.applyCanvasAppearance(canvas, data);
         const focus = this.reading.get(canvas);
         if (focus && !data.nodes.some(node => node.id === focus.id && meta(node)?.rootId === focus.rootId)) {
             this.exitFocus(canvas); return;
@@ -989,6 +1021,7 @@ export class CanvasMindmap {
             node.nodeEl.classList.toggle(DIM, dim.has(node.id));
             const state = meta(nodeData);
             node.nodeEl.classList.toggle('cmm-native-heading', state?.appearance === 'branch' && state.mode === 'title');
+            node.nodeEl.classList.toggle('cmm-native-auto-color', !!state && !state.overrides?.color && nodeData.color === state.applied.color);
             if (state) node.nodeEl.setAttribute('data-cmm-depth', String(state.depth));
             else node.nodeEl.removeAttribute('data-cmm-depth');
             if (state && (measure || hidden.has(node.id))) this.refreshPreview(node, hidden.has(node.id));
@@ -1021,6 +1054,13 @@ export class CanvasMindmap {
             const descendantsLabel = t('{count} 个隐藏后代', { count });
             button.setAttribute('aria-label', `${action}, ${descendantsLabel}`);
             button.title = `${action} · ${descendantsLabel}`;
+        }
+        for (const edgeData of data.edges) {
+            const edge = canvas.edges.get(edgeData.id);
+            if (!edge) continue;
+            const automatic = !!edgeData.canvasMindMapRoot && (!edgeData.color || edgeData.color === edgeData.canvasMindMapAppliedColor);
+            edge.lineGroupEl.classList.toggle('cmm-native-auto-edge', automatic);
+            edge.lineEndGroupEl.classList.toggle('cmm-native-auto-edge', automatic);
         }
         for (const edge of canvas.edges.values()) {
             this.hideEdge(edge, this.isHidden(edge, hidden)); this.dimEdge(edge, this.isHidden(edge, dim));

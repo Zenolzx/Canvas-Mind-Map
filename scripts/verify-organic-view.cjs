@@ -30,7 +30,8 @@ const { OrganicMindMapView } = sandbox.module.exports;
         requestSaveLayout() {}, getLeavesOfType: () => leaves,
     } };
     const view = new OrganicMindMapView({ app });
-    view.svg = { clientWidth: 1000, clientHeight: 700 };
+    const paper = new Map();
+    view.svg = { clientWidth: 1000, clientHeight: 700, style: { setProperty: (key, value) => paper.set(key, value) } };
     view.scene = { setAttribute() {}, querySelectorAll: () => [] };
     view.status = {}; view.measure = (text, size) => text.length * size * 0.6;
     view.renderer = { render: (scene, result, callbacks) => { actions = callbacks; } };
@@ -47,6 +48,7 @@ const { OrganicMindMapView } = sandbox.module.exports;
     actions.toggle(rootId); assert.ok(view.result.nodes.some(n => n.title === 'Deep'), 'descendant expansion survives parent folding');
     const point = [(123 - view.offset.x) / view.scale, (234 - view.offset.y) / view.scale];
     view.zoom(1.3, 123, 234);
+    assert.ok(paper.has('--cmm-parallax-x'), 'decorated paper follows the viewport');
     assert.ok(Math.abs(point[0] * view.scale + view.offset.x - 123) < 1e-8);
     assert.ok(Math.abs(point[1] * view.scale + view.offset.y - 234) < 1e-8);
     const repeat = view.model.nodes.filter(n => n.title === 'Repeat')[1];

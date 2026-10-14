@@ -7,6 +7,16 @@ export interface ComposerNode {
     id: string; title: string; body: string; children: ComposerNode[];
     type: 'heading' | 'idea' | 'todo'; checked?: boolean; collapsed: boolean; metadata: Record<string, unknown>;
 }
+export interface SketchPoint { x: number; y: number }
+export interface FreeNote { id: string; title: string; body: string; position: SketchPoint; sourceIdeaId?: string }
+export interface SketchLink { id: string; from: string; to: string }
+export interface SketchAnnotation { id: string; kind: 'arrow' | 'ellipse' | 'highlight' | 'text'; start: SketchPoint; end: SketchPoint; text?: string; anchorId?: string }
+export interface SketchState {
+    positions: Record<string, SketchPoint>;
+    notes: FreeNote[];
+    links: SketchLink[];
+    annotations: SketchAnnotation[];
+}
 export interface ComposerDraft {
     schemaVersion: 1; draftId: string; root: ComposerNode; rootAsHeading: boolean;
     targetFolder: string; createdAt: number; updatedAt: number;
@@ -14,7 +24,9 @@ export interface ComposerDraft {
     viewport?: { zoom: number; center: { x: number; y: number } };
     createdPath?: string;
     unsorted?: ComposerNode[]; selections?: string[]; focusNode?: string | null; frontmatter?: string;
+    mode?: 'structured' | 'sketch'; sketch?: SketchState;
 }
+export const emptySketch = (): SketchState => ({ positions: {}, notes: [], links: [], annotations: [] });
 export const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export function newNode(title = ct('New idea'), type: ComposerNode['type'] = 'heading'): ComposerNode {
     return { id: `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, title, body: '', children: [], type, collapsed: false, metadata: {} };
@@ -29,8 +41,23 @@ export function normalizeDraft(raw: unknown): ComposerDraft {
     const draft = clone(raw) as ComposerDraft;
     if (draft.schemaVersion !== 1 || typeof draft.draftId !== 'string' || !draft.draftId || typeof draft.targetFolder !== 'string') throw new Error('Unsupported draft format.');
     draft.rootAsHeading = draft.rootAsHeading === true;
+    draft.mode = draft.mode === 'sketch' ? 'sketch' : 'structured';
+    const sketch = draft.sketch && typeof draft.sketch === 'object' ? draft.sketch : emptySketch();
+    sketch.positions = sketch.positions && typeof sketch.positions === 'object' ? sketch.positions : {};
+    sketch.notes = Array.isArray(sketch.notes) ? sketch.notes.filter(n => n && typeof n.id === 'string' && typeof n.title === 'string' && typeof n.body === 'string' && Number.isFinite(n.position?.x) && Number.isFinite(n.position?.y)) : [];
+    sketch.links = Array.isArray(sketch.links) ? sketch.links.filter(l => l && typeof l.id === 'string' && typeof l.from === 'string' && typeof l.to === 'string') : [];
+    sketch.annotations = Array.isArray(sketch.annotations) ? sketch.annotations.filter(a => a && typeof a.id === 'string' && ['arrow', 'ellipse', 'highlight', 'text'].includes(a.kind) && Number.isFinite(a.start?.x) && Number.isFinite(a.start?.y) && Number.isFinite(a.end?.x) && Number.isFinite(a.end?.y)) : [];
+    draft.sketch = sketch;
     validate(draft);
     const all = entries(draft, true);
+    const ids = new Set(all.map(e => e.node.id));
+    for (const [id, position] of Object.entries(draft.sketch!.positions))
+        if (!ids.has(id) || !Number.isFinite(position?.x) || !Number.isFinite(position?.y)) delete draft.sketch!.positions[id];
+    const freeIds = new Set<string>();
+    draft.sketch!.notes = draft.sketch!.notes.filter(note => { if (ids.has(note.id) || freeIds.has(note.id)) return false; freeIds.add(note.id); return true; });
+    const endpoints = new Set([...ids, ...freeIds]);
+    draft.sketch!.links = draft.sketch!.links.filter(link => link.from !== link.to && endpoints.has(link.from) && endpoints.has(link.to));
+    draft.sketch!.annotations = draft.sketch!.annotations.filter(annotation => !annotation.anchorId || endpoints.has(annotation.anchorId));
     for (const { node } of all) {
         if (!['heading', 'idea', 'todo'].includes(node.type ?? 'heading')) throw new Error('Unsupported node type.');
         node.type = node.type ?? 'heading'; node.collapsed = node.collapsed === true; node.checked = node.checked === true;
@@ -69,6 +96,14 @@ export function validate(draft: ComposerDraft, exporting = false): void {
         if (depth + Number(draft.rootAsHeading) > 6) throw new Error('Maximum Markdown heading depth reached.');
         if (exporting && (!node.title.trim() || /[\r\n]/.test(node.title))) throw new Error('Every node needs a single-line title.');
     }
+}
+function pruneSketch(draft: ComposerDraft): void {
+    if (!draft.sketch) return;
+    const ids = new Set(entries(draft, true).map(e => e.node.id));
+    const endpoints = new Set([...ids, ...draft.sketch.notes.map(n => n.id)]);
+    for (const id of Object.keys(draft.sketch.positions)) if (!ids.has(id)) delete draft.sketch.positions[id];
+    draft.sketch.links = draft.sketch.links.filter(link => endpoints.has(link.from) && endpoints.has(link.to));
+    draft.sketch.annotations = draft.sketch.annotations.filter(annotation => !annotation.anchorId || endpoints.has(annotation.anchorId));
 }
 export function projectDraft(draft: ComposerDraft): MindMapModel {
     const nodes: MindMapNode[] = entries(draft).map(({ node, parent, depth }) => ({ id: node.id, key: node.id,
@@ -140,7 +175,7 @@ export class ComposerHistory {
         this.editing = undefined; this.group = '';
     }
     change(edit: (draft: ComposerDraft) => void, group = ''): void {
-        const next = clone(this.draft); edit(next); validate(next);
+        const next = clone(this.draft); edit(next); validate(next); pruneSketch(next);
         if (JSON.stringify(next) === JSON.stringify(this.draft)) return;
         if (!this.editing && (!group || group !== this.group || Date.now() - this.changedAt > 800)) this.undoStack.push(clone(this.draft));
         this.group = group; this.changedAt = Date.now(); if (!this.editing) this.redoStack = [];

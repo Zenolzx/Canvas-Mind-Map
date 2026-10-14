@@ -17,25 +17,28 @@ export class OrganicToolbar {
     private readingButton: HTMLButtonElement;
     constructor(container: HTMLElement, private actions: OrganicToolbarActions) {
         const bar = container.createDiv({ cls: 'cmm-organic-toolbar' });
-        const button = (label: string, action: () => void) => {
-            const b = bar.createEl('button', { text: label }); b.addEventListener('click', action); return b;
+        const navigation = bar.createDiv({ cls: 'cmm-organic-toolbar-navigation' });
+        const tools = bar.createDiv({ cls: 'cmm-organic-toolbar-tools' });
+        const button = (parent: HTMLElement, label: string, action: () => void) => {
+            const b = parent.createEl('button', { text: label }); b.addEventListener('click', action); return b;
         };
-        button(t('搜索标题'), () => this.openSearch());
-        this.focusButton = button(t('聚焦当前分支'), actions.focus);
-        this.readingButton = button(t('阅读此分支'), actions.reading);
-        const layout = bar.createEl('select', { attr: { 'aria-label': t('布局') } });
-        for (const [value, text] of [['organic-radial', 'Organic Radial'], ['organic-horizontal', 'Organic Horizontal'], ['compact-organic', 'Compact Organic']])
+        button(navigation, t('搜索标题'), () => this.openSearch());
+        this.focusButton = button(navigation, t('聚焦当前分支'), actions.focus);
+        this.readingButton = button(navigation, t('阅读此分支'), actions.reading);
+        const layout = navigation.createEl('select', { attr: { 'aria-label': t('布局') } });
+        for (const [value, text] of [['organic-radial', t('放射布局')], ['organic-horizontal', t('水平布局')], ['compact-organic', t('紧凑布局')]])
             layout.createEl('option', { text, value });
         layout.addEventListener('change', () => actions.layout(layout.value as OrganicLayoutStyle));
         this.layoutSelect = layout;
-        button(t('导出'), () => {
+        button(tools, t('导出'), () => {
             const menu = new Menu();
             menu.addItem(item => item.setTitle('SVG').onClick(() => actions.export('svg')));
             menu.addItem(item => item.setTitle('PNG').onClick(() => actions.export('png')));
-            const rect = bar.getBoundingClientRect(); menu.showAtPosition({ x: rect.right - 120, y: rect.bottom });
+            const rect = tools.getBoundingClientRect(); menu.showAtPosition({ x: rect.right - 120, y: rect.bottom });
         });
-        button(t('刷新'), actions.refresh); button(t('适应窗口'), actions.fit);
-        button('−', () => actions.zoom(0.8)); button('+', () => actions.zoom(1.25));
+        button(tools, t('刷新'), actions.refresh); button(tools, t('适应窗口'), actions.fit);
+        const zoomOut = button(tools, '−', () => actions.zoom(0.8)); zoomOut.setAttribute('aria-label', t('缩小'));
+        const zoomIn = button(tools, '+', () => actions.zoom(1.25)); zoomIn.setAttribute('aria-label', t('放大'));
         this.status = bar.createSpan({ cls: 'cmm-organic-status', text: t('请选择 Markdown 笔记') });
         this.searchRow = container.createDiv({ cls: 'cmm-organic-search' }); this.searchRow.hidden = true;
         this.input = this.searchRow.createEl('input', { type: 'search', attr: { 'aria-label': t('搜索标题') } });
@@ -58,7 +61,7 @@ export class OrganicToolbar {
     closeSearch(): void { this.input.value = ''; this.searchRow.hidden = true; this.actions.clearSearch(); }
     update(index: number, total: number, focus: boolean, reading: boolean, layout: OrganicLayoutStyle): void {
         this.layoutSelect.value = layout;
-        this.count.textContent = `${index + 1} / ${total}`;
+        this.count.textContent = total ? `${index + 1} / ${total}` : this.input.value ? t('没有搜索结果') : '';
         this.focusButton.textContent = t(focus ? '退出聚焦' : '聚焦当前分支');
         this.readingButton.textContent = t(reading ? '退出阅读模式' : '阅读此分支');
     }

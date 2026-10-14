@@ -16,6 +16,11 @@ const log = text => { const line = document.createElement('p'); line.textContent
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function run() {
+// The browser fixture supplies the DOM helpers normally provided by Obsidian.
+for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
+    prototype.setCssStyles = function(styles) { Object.assign(this.style, styles); };
+    prototype.setCssProps = function(props) { for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value); };
+}
 const engine = new OrganicLayoutEngine(), renderer = new OrganicMindMapRenderer(), exporter = new OrganicExportService();
 const context = document.createElement('canvas').getContext('2d');
 const measureText = (text, size, weight) => { context.font = weight + ' ' + size + 'px Arial'; return context.measureText(text).width; };
@@ -59,10 +64,6 @@ for (const text of ['', 'No headings', '# 单节点 😀', '# A\\n# B', '# A\\n#
 }
 renderer.close();
 // Real DOM and production View, with only vault/workspace APIs replaced at the host boundary.
-for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
-    prototype.setCssStyles = function(styles) { Object.assign(this.style, styles); };
-    prototype.setCssProps = function(props) { for (const [key, value] of Object.entries(props)) this.style.setProperty(key, value); };
-}
 HTMLElement.prototype.empty = function(){this.replaceChildren();};
 HTMLElement.prototype.addClass = function(name){this.classList.add(name);};
 HTMLElement.prototype.createEl = function(tag, options = {}) {
@@ -90,18 +91,22 @@ view.focusBranch(b); view.openSearch(); const input=view.contentEl.querySelector
 input.value='streamAssistantResponse';input.dispatchEvent(new Event('input',{bubbles:true}));
 assert(view.interaction.focusPaused,'search must suspend focus'); assert(view.result.nodes.some(n=>n.title==='streamAssistantResponse'),'search must reveal collapsed result');
 await pause(250); // Let search-row resize and smooth navigation settle before the refresh baseline.
-const scale=view.scale,offset={...view.offset};const readStart=reads;
+const screen=id=>{const node=view.result.nodes.find(item=>item.id===id);return[node.x*view.scale+view.offset.x,node.y*view.scale+view.offset.y];};
+const scale=view.scale,selectedScreen=screen(view.state.selectedNode);const readStart=reads;
 source=source.replace('## A','## Renamed')+'\\n## New Section';
 for(let i=0;i<10;i++)for(const listener of events.get('modify'))listener(file);
 await pause(750);assert(reads===readStart+1,'vault changes must debounce');
 assert(view.model.nodes.some(n=>n.title==='New Section'),'new heading missing');assert(id('Renamed')===a,'rename identity');
-assert(view.scale===scale && view.offset.x===offset.x && view.offset.y===offset.y,'refresh viewport reset');
+assert(view.scale===scale && screen(view.state.selectedNode).every((value,index)=>Math.abs(value-selectedScreen[index])<1),'refresh moved the selected heading on screen');
 assert(view.interaction.search.query==='streamAssistantResponse','refresh lost query');assert(view.state.focusNode===b,'refresh lost focus');
 input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert(!view.interaction.focusPaused && view.state.focusNode===b,'clear search must restore focus');
 view.focusBranch(null);view.readBranch(a);view.svg.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
 assert(view.state.reading.currentNode===nested,'reading arrow order');
 view.svg.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert(view.model.nodes.find(n=>n.id===view.state.reading.currentNode).title==='streamAssistantResponse','reading hidden heading');
-view.focusBranch(b);view.state.layout='compact-organic';view.draw();view.zoom(1.1);const zoom=view.scale;await view.onClose();
+view.focusBranch(b);view.state.layout='compact-organic';view.draw();view.zoom(1.1);const zoom=view.scale;
+view.openSearch();input.value='no matching heading';input.dispatchEvent(new Event('input',{bubbles:true}));
+assert(view.contentEl.querySelector('.cmm-organic-search span').textContent==='No results','empty search must not display 1 / 0');
+view.toolbar.closeSearch();await view.onClose();
 assert(saved.files['note.md'].focusNode===b,'focus persistence');
 const reopened=new OrganicMindMapView({app},store);await reopened.onOpen();await reopened.setState({file:'note.md'},{history:false});
 assert(reopened.state.focusNode===b && reopened.scale===zoom && reopened.state.layout==='compact-organic','tab restore');

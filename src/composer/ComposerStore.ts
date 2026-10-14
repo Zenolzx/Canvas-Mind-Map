@@ -25,6 +25,16 @@ export class ComposerStore {
         }
     }
     create(folder = ''): ComposerDraft { return { ...newDraft(folder), ...this.preferences }; }
+    renameCreatedPath(oldPath: string, newPath: string): void {
+        for (const draft of Object.values(this.data)) if (draft.createdPath === oldPath) {
+            draft.createdPath = newPath; this.put(draft);
+        }
+    }
+    detachCreatedPath(path: string): void {
+        for (const draft of Object.values(this.data)) if (draft.createdPath === path) {
+            delete draft.createdPath; this.put(draft);
+        }
+    }
     subscribe(listener: (status: string) => void): () => void { this.listeners.add(listener); listener(this.status); return () => this.listeners.delete(listener); }
     private report(status: string): void { this.status = status; this.listeners.forEach(listener => listener(status)); }
     put(draft: ComposerDraft): void {

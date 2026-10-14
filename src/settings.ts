@@ -24,12 +24,21 @@ export function layoutLabels(): Record<MindmapLayout, string> {
 }
 export interface MindmapSettings {
     organic: OrganicSettings;
+    appearance: AppearancePreset;
     mindmapLevels: MindmapLevelStyle[];
     lastMode: 'title' | 'body';
     lastLayout: MindmapLayout;
     focusMode: 'hide' | 'dim';
     compactFocus: boolean;
     language: LanguageSetting;
+}
+export type AppearancePreset = 'ink' | 'cinnabar' | 'breeze' | 'violet' | 'white';
+export function normalizeAppearancePreset(value: unknown): AppearancePreset {
+    if (value === 'wash' || value === 'whale') return 'breeze';
+    if (value === 'graphite') return 'breeze';
+    if (value === 'theme') return 'white';
+    if (value === 'gold') return 'cinnabar';
+    return value === 'cinnabar' || value === 'breeze' || value === 'violet' || value === 'white' ? value : 'ink';
 }
 
 export interface OrganicSettings {

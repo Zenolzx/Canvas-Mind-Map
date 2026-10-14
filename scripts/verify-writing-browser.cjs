@@ -2,6 +2,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const esbuild = require('esbuild');
 const destination = path.resolve('tmp/writing-browser'); fs.mkdirSync(destination, { recursive: true });
+const artDir = path.join(destination, 'assets'); fs.mkdirSync(artDir, { recursive: true });
+for (const name of ['blue-whale.webp']) fs.copyFileSync(path.resolve('assets', name), path.join(artDir, name));
 const source = `
 import { OrganicMindMapView } from './src/organic/OrganicMindMapView';
 import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
