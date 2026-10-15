@@ -1,11 +1,12 @@
 {
   "name": "canvas-mind-map",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Mind maps for Markdown, DOCX, PDF, and visual note composition in Obsidian",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "lint": "eslint main.ts src",
     "test": "node scripts/verify-layout.cjs && node scripts/verify-native-appearance.cjs && node scripts/verify-native-menu.cjs && node scripts/verify-organic.cjs && node scripts/verify-organic-view.cjs && node scripts/verify-organic-state.cjs && node scripts/verify-organic-scale.cjs && node scripts/verify-document-structure.cjs && node scripts/verify-document-transactions.cjs && node scripts/verify-document-conflicts.cjs && node scripts/verify-section-text.cjs && node scripts/verify-section-history.cjs && node scripts/verify-writing-state.cjs && node scripts/verify-source-formats.cjs && node scripts/verify-composer.cjs && node scripts/verify-composer-tools.cjs && node scripts/verify-composer-interaction.cjs && node scripts/verify-composer-sketch.cjs",
     "test:composer": "node scripts/verify-composer.cjs && node scripts/verify-composer-tools.cjs && node scripts/verify-composer-interaction.cjs && node scripts/verify-composer-sketch.cjs",
     "test:composer-browser": "node scripts/verify-composer-browser.cjs && node scripts/run-composer-browser.cjs && node scripts/run-composer-tools-browser.cjs && node scripts/run-composer-interaction-browser.cjs && node scripts/run-composer-sketch-browser.cjs",
@@ -19,11 +20,16 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "9.30.1",
+    "@eslint/json": "0.14.0",
     "@types/node": "16.18.126",
     "esbuild": "0.17.3",
+    "eslint": "9.30.1",
+    "eslint-plugin-obsidianmd": "0.4.2",
     "obsidian": "1.13.1",
     "tslib": "2.4.0",
-    "typescript": "4.7.4"
+    "typescript": "5.4.5",
+    "typescript-eslint": "8.35.1"
   },
   "dependencies": {
     "@codemirror/commands": "6.8.1",

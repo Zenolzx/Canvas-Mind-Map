@@ -3,7 +3,7 @@ export class PluginDataStore {
     private pending: Promise<void> = Promise.resolve();
     constructor(private snapshot: () => unknown, private write: (data: unknown) => Promise<void>) {}
     save(): Promise<void> {
-        const data = JSON.parse(JSON.stringify(this.snapshot()));
+        const data: unknown = JSON.parse(JSON.stringify(this.snapshot()));
         const next = this.pending.catch(() => {}).then(() => this.write(data));
         this.pending = next;
         return next;

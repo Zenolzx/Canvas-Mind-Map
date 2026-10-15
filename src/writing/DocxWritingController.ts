@@ -22,7 +22,6 @@ export class DocxWritingController {
         this.heading = editorPane.createEl('h3');
         this.status = editorPane.createDiv({ cls: 'cmm-writing-editor-status' });
         this.textarea = editorPane.createEl('textarea', { cls: 'cmm-docx-body-editor', attr: { 'aria-label': 'DOCX 章节正文' } });
-        this.textarea.style.width = '100%'; this.textarea.style.minHeight = '60%'; this.textarea.style.resize = 'vertical';
         this.textarea.addEventListener('input', () => {
             this.status.textContent = '尚未保存…';
             if (this.timer) clearTimeout(this.timer);
@@ -148,8 +147,8 @@ export class DocxWritingController {
     }
     private textDialog(title: string, initial: string, submit: (value: string) => Promise<unknown>): void {
         const modal = new Modal(this.app); modal.setTitle(title);
-        const input = modal.contentEl.createEl('input', { attr: { 'aria-label': title } });
-        input.value = initial; input.style.width = '100%';
+        const input = modal.contentEl.createEl('input', { cls: 'cmm-docx-dialog-input', attr: { 'aria-label': title } });
+        input.value = initial;
         const save = async () => { if (!input.value.trim()) return; input.disabled = true; await submit(input.value.trim()); modal.close(); };
         input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); void save(); } };
         const button = modal.contentEl.createEl('button', { text: '保存' }); button.onclick = () => { void save(); };

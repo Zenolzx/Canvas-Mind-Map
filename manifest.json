@@ -1,7 +1,7 @@
 {
   "id": "canvas-mind-map",
   "name": "Canvas Mind Map",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minAppVersion": "1.7.7",
   "description": "Create and explore mind maps from Markdown, DOCX, and PDF, or compose a new note visually.",
   "author": "Canvas Mind Map contributors",

@@ -534,16 +534,16 @@ export class ComposerView extends ItemView {
             const text = group.querySelector('[role=link] > text'); if (text) text.setAttribute('visibility', 'hidden');
             box = group.querySelector('.cmm-organic-hitbox');
             foreign = svgElement(this.contentEl.ownerDocument, 'foreignObject', { x: 0, y: 0, width: geometry.width, height: geometry.height });
-            input.style.fontSize = `${geometry.fontSize}px`; input.style.fontWeight = String(geometry.fontWeight);
-            input.style.height = `${geometry.height}px`; foreign.append(input); group.append(foreign);
+            input.setCssStyles({ fontSize: `${geometry.fontSize}px`, fontWeight: String(geometry.fontWeight), height: `${geometry.height}px` });
+            foreign.append(input); group.append(foreign);
         } else {
             row!.classList.add('is-editing'); const label = row!.querySelector<HTMLElement>('.cmm-composer-idea-title'); if (label) label.hidden = true;
             row!.prepend(input);
         }
         const resize = () => {
-            input.style.height = '0px';
+            input.setCssStyles({ height: '0px' });
             const height = Math.max(geometry?.height ?? 32, input.scrollHeight);
-            input.style.height = `${height}px`; foreign?.setAttribute('height', String(height)); box?.setAttribute('height', String(height));
+            input.setCssStyles({ height: `${height}px` }); foreign?.setAttribute('height', String(height)); box?.setAttribute('height', String(height));
         };
         resize();
         let finished = false;
@@ -827,7 +827,7 @@ export class ComposerView extends ItemView {
             drop = undefined; preview.hidden = true;
             preview.removeAttribute('data-position'); preview.removeAttribute('data-target'); preview.removeAttribute('data-valid');
             ghost.hidden = false; ghost.textContent = `${selectedRoots(this.draft, ids).length || 1} · ${this.node(id).title || ct('New idea')}`;
-            ghost.style.left = `${last.x + 16}px`; ghost.style.top = `${last.y + 16}px`;
+            ghost.setCssStyles({ left: `${last.x + 16}px`, top: `${last.y + 16}px` });
             if (!hit) return;
             if (sourceDraft !== this.draft) validation.clear();
             const cacheKey = `${hit.target}:${hit.position}`;
@@ -840,9 +840,9 @@ export class ComposerView extends ItemView {
             preview.classList.toggle('is-invalid', !!reason);
             if (reason || hit.position === 'child') {
                 target.classList.add(reason ? 'is-drop-invalid' : 'is-drop-child');
-                if (reason) { preview.hidden = false; preview.style.left = `${last.x + 12}px`; preview.style.top = `${last.y + 40}px`; preview.style.width = 'auto'; }
+                if (reason) { preview.hidden = false; preview.setCssStyles({ left: `${last.x + 12}px`, top: `${last.y + 40}px`, width: '' }); }
             } else {
-                preview.hidden = false; preview.style.left = `${rect.left}px`; preview.style.top = `${(hit.position === 'before' ? rect.top : rect.bottom) - 1}px`; preview.style.width = `${rect.right - rect.left}px`;
+                preview.hidden = false; preview.setCssStyles({ left: `${rect.left}px`, top: `${(hit.position === 'before' ? rect.top : rect.bottom) - 1}px`, width: `${rect.right - rect.left}px` });
             }
         };
         const tick = () => {
@@ -900,9 +900,9 @@ export class ComposerView extends ItemView {
         if (!node) return;
         const x = node.x * this.viewport.scale + this.viewport.offset.x;
         const y = (node.y + node.height) * this.viewport.scale + this.viewport.offset.y;
-        this.contextBar.style.left = Math.max(8, Math.min(x, this.stage.clientWidth - this.contextBar.offsetWidth - 8)) + 'px';
-        this.contextBar.style.top = Math.max(8, Math.min(y + 12, this.stage.clientHeight - 48)) + 'px';
-        if (this.emptyHint) { this.emptyHint.style.left = (x + node.width * this.viewport.scale / 2) + 'px'; this.emptyHint.style.top = (y + 16) + 'px'; }
+        this.contextBar.setCssStyles({ left: Math.max(8, Math.min(x, this.stage.clientWidth - this.contextBar.offsetWidth - 8)) + 'px',
+            top: Math.max(8, Math.min(y + 12, this.stage.clientHeight - 48)) + 'px' });
+        if (this.emptyHint) this.emptyHint.setCssStyles({ left: (x + node.width * this.viewport.scale / 2) + 'px', top: (y + 16) + 'px' });
     }
     private viewMenu(event: MouseEvent): void {
         const menu = new Menu();

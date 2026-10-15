@@ -188,6 +188,8 @@
 .cmm-writing-divider { cursor: col-resize; background: var(--background-modifier-border); touch-action: none; }
 .cmm-writing-divider:hover, .cmm-writing-divider:focus { background: var(--interactive-accent); }
 .cmm-writing-editor { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 12px; overflow: hidden; border-left: 1px solid var(--background-modifier-border); }
+.cmm-writing-editor .cmm-docx-body-editor { width: 100%; min-height: 60%; resize: vertical; }
+.cmm-docx-dialog-input { width: 100%; }
 .cmm-writing-editor h3 { margin: 0 0 8px; font-size: 1em; overflow-wrap: anywhere; }
 .cmm-writing-editor-status { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-bottom: 8px; }
 .cmm-writing-editor-content { flex: 1; min-height: 0; overflow: hidden; }
@@ -228,7 +230,7 @@
 .cmm-composer-breadcrumb button { font-size: 12px; height: auto; white-space: normal; }
 .cmm-composer-status { font-size: 12px; color: var(--text-muted); padding: 7px 12px; border-top: 1px solid var(--background-modifier-border); }
 .cmm-composer-drop { position: fixed; pointer-events: none; z-index: 20; height: 3px; border-radius: 2px; background: var(--interactive-accent); }
-.cmm-composer-drop.is-invalid { height: auto; max-width: 260px; padding: 5px 8px; background: var(--background-primary); color: var(--text-error); font-size: 12px; }
+.cmm-composer-drop.is-invalid { width: auto; height: auto; max-width: 260px; padding: 5px 8px; background: var(--background-primary); color: var(--text-error); font-size: 12px; }
 .cmm-composer-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .cmm-composer-field[hidden] { display: none; }
 .cmm-composer-create-modal { display: grid; gap: 14px; }
