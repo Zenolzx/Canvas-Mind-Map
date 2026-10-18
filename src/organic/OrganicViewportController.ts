@@ -14,12 +14,22 @@ export class OrganicViewportController {
     }
     fit(bounds: { x: number; y: number; width: number; height: number }, width: number, height: number): void {
         this.cancel();
-        this.scale = Math.max(0.05, Math.min(1.25, width / bounds.width, height / bounds.height));
-        this.center({ x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }, width, height);
+        // Degenerate bounds (a single node, or a pane that has not been measured yet) would make
+        // this Infinity or NaN; fall back to a neutral scale instead of corrupting the transform.
+        const safe = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
+        const boundsWidth = safe(bounds.width), boundsHeight = safe(bounds.height);
+        const paneWidth = safe(width), paneHeight = safe(height);
+        const candidates = [1.25];
+        if (boundsWidth && paneWidth) candidates.push(paneWidth / boundsWidth);
+        if (boundsHeight && paneHeight) candidates.push(paneHeight / boundsHeight);
+        this.scale = Math.max(0.05, Math.min(...candidates));
+        const centre = { x: bounds.x + boundsWidth / 2, y: bounds.y + boundsHeight / 2 };
+        this.center(Number.isFinite(centre.x) && Number.isFinite(centre.y) ? centre : { x: 0, y: 0 }, width, height);
     }
     center(point: { x: number; y: number }, width: number, height: number): void {
         this.cancel();
-        this.offset = { x: width / 2 - point.x * this.scale, y: height / 2 - point.y * this.scale };
+        const w = Number.isFinite(width) ? width : 0, h = Number.isFinite(height) ? height : 0;
+        this.offset = { x: w / 2 - point.x * this.scale, y: h / 2 - point.y * this.scale };
     }
     snapshot(width: number, height: number) {
         return { zoom: this.scale, center: { x: (width / 2 - this.offset.x) / this.scale,

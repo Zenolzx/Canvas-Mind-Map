@@ -25,6 +25,11 @@ export function layoutLabels(): Record<MindmapLayout, string> {
 export interface MindmapSettings {
     organic: OrganicSettings;
     appearance: AppearancePreset;
+    branchColour: BranchColourMode;
+    surfaceMaterial: SurfaceMaterial;
+    typography: MindmapTypeface;
+    backgroundImage: string;
+    backgroundImageStrength: number;
     mindmapLevels: MindmapLevelStyle[];
     lastMode: 'title' | 'body';
     lastLayout: MindmapLayout;
@@ -32,13 +37,41 @@ export interface MindmapSettings {
     compactFocus: boolean;
     language: LanguageSetting;
 }
-export type AppearancePreset = 'ink' | 'cinnabar' | 'breeze' | 'violet' | 'white';
+export type AppearancePreset = 'obsidian' | 'ink' | 'cinnabar' | 'breeze' | 'violet';
 export function normalizeAppearancePreset(value: unknown): AppearancePreset {
+    if (value === 'graphite') return 'ink';
+    if (value === 'theme') return 'obsidian';
     if (value === 'wash' || value === 'whale') return 'breeze';
-    if (value === 'graphite') return 'breeze';
-    if (value === 'theme') return 'white';
     if (value === 'gold') return 'cinnabar';
-    return value === 'cinnabar' || value === 'breeze' || value === 'violet' || value === 'white' ? value : 'ink';
+    // `white` was a second "no override" option beside `obsidian`; it no longer exists.
+    return value === 'cinnabar' || value === 'breeze' || value === 'violet' || value === 'ink'
+        ? value : 'obsidian';
+}
+
+/**
+ * Structure painted under the map. Independent of the palette, so changing hue never changes the
+ * surface and vice versa. `dots` is the default because a fresh install should not look like a
+ * flat colour swatch, and a dot grid is the least opinionated way to read as a surface.
+ */
+export type SurfaceMaterial = 'none' | 'dots' | 'grid' | 'paper';
+export function normalizeSurfaceMaterial(value: unknown): SurfaceMaterial {
+    return value === 'none' || value === 'grid' || value === 'paper' ? value : 'dots';
+}
+
+/** Card and heading face: follow the vault, or set an explicit serif display face. */
+export type MindmapTypeface = 'match' | 'serif';
+export function normalizeMindmapTypeface(value: unknown): MindmapTypeface {
+    return value === 'serif' ? 'serif' : 'match';
+}
+
+
+/**
+ * Dye the branches with the shared palette, or hold every branch to the preset's single
+ * accent. Palette mode is what gives each top-level branch its stable identity.
+ */
+export type BranchColourMode = 'palette' | 'monochrome';
+export function normalizeBranchColourMode(value: unknown): BranchColourMode {
+    return value === 'monochrome' ? 'monochrome' : 'palette';
 }
 
 export interface OrganicSettings {

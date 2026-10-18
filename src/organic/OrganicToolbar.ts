@@ -1,4 +1,4 @@
-import { Menu } from 'obsidian';
+import { Menu, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import type { OrganicLayoutStyle } from './OrganicViewState';
 
@@ -19,10 +19,18 @@ export class OrganicToolbar {
         const bar = container.createDiv({ cls: 'cmm-organic-toolbar' });
         const navigation = bar.createDiv({ cls: 'cmm-organic-toolbar-navigation' });
         const tools = bar.createDiv({ cls: 'cmm-organic-toolbar-tools' });
-        const button = (parent: HTMLElement, label: string, action: () => void) => {
-            const b = parent.createEl('button', { text: label }); b.addEventListener('click', action); return b;
+        // Icon-and-label buttons: a text glyph is not an icon and reads as a placeholder.
+        const button = (parent: HTMLElement, label: string, action: () => void, icon?: string) => {
+            const b = parent.createEl('button', { attr: { 'aria-label': label, title: label } });
+            if (icon) { setIcon(b, icon); b.createSpan({ cls: 'cmm-button-label', text: label }); }
+            else b.textContent = label;
+            b.addEventListener('click', action); return b;
         };
-        button(navigation, t('搜索标题'), () => this.openSearch());
+        const iconButton = (parent: HTMLElement, label: string, action: () => void, icon: string) => {
+            const b = parent.createEl('button', { attr: { 'aria-label': label, title: label } });
+            setIcon(b, icon); b.addEventListener('click', action); return b;
+        };
+        button(navigation, t('搜索标题'), () => this.openSearch(), 'search');
         this.focusButton = button(navigation, t('聚焦当前分支'), actions.focus);
         this.readingButton = button(navigation, t('阅读此分支'), actions.reading);
         const layout = navigation.createEl('select', { attr: { 'aria-label': t('布局') } });
@@ -35,10 +43,10 @@ export class OrganicToolbar {
             menu.addItem(item => item.setTitle('SVG').onClick(() => actions.export('svg')));
             menu.addItem(item => item.setTitle('PNG').onClick(() => actions.export('png')));
             const rect = tools.getBoundingClientRect(); menu.showAtPosition({ x: rect.right - 120, y: rect.bottom });
-        });
-        button(tools, t('刷新'), actions.refresh); button(tools, t('适应窗口'), actions.fit);
-        const zoomOut = button(tools, '−', () => actions.zoom(0.8)); zoomOut.setAttribute('aria-label', t('缩小'));
-        const zoomIn = button(tools, '+', () => actions.zoom(1.25)); zoomIn.setAttribute('aria-label', t('放大'));
+        }, 'download');
+        button(tools, t('刷新'), actions.refresh, 'refresh-cw'); button(tools, t('适应窗口'), actions.fit, 'maximize');
+        iconButton(tools, t('缩小'), () => actions.zoom(0.8), 'zoom-out');
+        iconButton(tools, t('放大'), () => actions.zoom(1.25), 'zoom-in');
         this.status = bar.createSpan({ cls: 'cmm-organic-status', text: t('请选择 Markdown 笔记') });
         this.searchRow = container.createDiv({ cls: 'cmm-organic-search' }); this.searchRow.hidden = true;
         this.input = this.searchRow.createEl('input', { type: 'search', attr: { 'aria-label': t('搜索标题') } });
@@ -48,11 +56,9 @@ export class OrganicToolbar {
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeSearch(); }
         });
         this.count = this.searchRow.createSpan(); this.count.setAttribute('aria-live', 'polite');
-        for (const [text, delta] of [['↑', -1], ['↓', 1]] as const) {
-            const b = this.searchRow.createEl('button', { text }); b.setAttribute('aria-label', t(delta < 0 ? '上一项' : '下一项'));
-            b.addEventListener('click', () => actions.next(delta));
-        }
-        this.searchRow.createEl('button', { text: '×', attr: { 'aria-label': t('清除搜索') } }).addEventListener('click', () => this.closeSearch());
+        for (const [icon, delta] of [['chevron-up', -1], ['chevron-down', 1]] as const)
+            iconButton(this.searchRow, t(delta < 0 ? '上一项' : '下一项'), () => actions.next(delta), icon);
+        iconButton(this.searchRow, t('清除搜索'), () => this.closeSearch(), 'x');
     }
     private layoutSelect: HTMLSelectElement;
     get searching(): boolean { return !this.searchRow.hidden; }

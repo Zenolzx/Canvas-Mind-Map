@@ -17,7 +17,6 @@ const context = await esbuild.context({
 	},
 	entryPoints: ["main.ts"],
 	bundle: true,
-	loader: { ".webp": "dataurl" },
 	external: [
 		"obsidian",
 		"electron",

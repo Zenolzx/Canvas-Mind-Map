@@ -1,9 +1,18 @@
 import type { OrganicLayoutResult } from './OrganicLayoutEngine';
-import { OrganicMindMapRenderer, svgElement } from './OrganicMindMapRenderer';
+import { DEFAULT_SURFACE, OrganicMindMapRenderer, svgElement, type OrganicSurfaceStyle } from './OrganicMindMapRenderer';
 
 export interface OrganicPresentation {
     background: string; foreground: string; border: string; rootBackground: string;
     accent: string; highlight: string; fontFamily: string;
+    /** Screen presentation also paints child cards and branch strokes; exports must match. */
+    nodeBackground?: string; branch?: string; muted?: string;
+    /**
+     * The renderer writes design tokens (`var(--cmm-branch-3)`, `var(--cmm-ink)`) so that a
+     * theme switch needs no relayout. An export has no stylesheet, so those have to be
+     * substituted with the values the live view computed.
+     */
+    resolve?: (declaration: string) => string;
+    surface?: OrganicSurfaceStyle;
 }
 export type OrganicRenderActions = Parameters<OrganicMindMapRenderer['render']>[2];
 
@@ -18,16 +27,32 @@ export class OrganicExportService {
         svg.append(svgElement(document, 'rect', { x: b.x, y: b.y, width: b.width, height: b.height, fill: presentation.background }));
         const scene = svgElement(document, 'g'); svg.append(scene);
         const renderer = new OrganicMindMapRenderer();
-        renderer.render(scene, result, { ...state, navigate: () => {}, toggle: () => {}, toggleLabel: () => '', duration: 0 });
+        // The surface carries the same geometry the screen uses, so a card's radius, fill and
+        // border are already correct as attributes and must not be re-derived here.
+        renderer.render(scene, result, { ...state, navigate: () => {}, toggle: () => {}, toggleLabel: () => '',
+            duration: 0, surface: presentation.surface ?? DEFAULT_SURFACE });
+        const resolve = presentation.resolve ?? ((declaration: string) => declaration);
+        // Walk the tree rather than query: the substitution must not depend on what subset of
+        // selectors the DOM surface in use happens to support.
+        const substitute = (node: Element): void => {
+            // Text nodes live in `children` in some DOM implementations; only elements carry colours.
+            if (typeof node.getAttribute === 'function') {
+                for (const attribute of ['fill', 'stroke', 'stop-color', 'color']) {
+                    const value = node.getAttribute(attribute);
+                    if (value?.includes('var(')) node.setAttribute(attribute, resolve(value));
+                }
+            }
+            for (const child of Array.from(node.children ?? [])) substitute(child);
+        };
+        substitute(scene);
+        // Only interaction states are layered by CSS on screen, so only those are re-applied.
         for (const group of Array.from(scene.querySelectorAll<SVGGElement>('[data-node-id]'))) {
-            const rect = group.querySelector('rect')!;
-            const root = group.classList.contains('is-root');
-            rect.setAttribute('fill', group.classList.contains('is-match') ? presentation.highlight : root ? presentation.rootBackground : 'none');
-            const active = group.classList.contains('is-current-match') || group.classList.contains('is-reading');
-            rect.setAttribute('stroke', active || group.classList.contains('is-selected') ? presentation.accent : root ? presentation.border : 'none');
-            rect.setAttribute('stroke-width', active ? '3' : '1.5');
-            if (root) group.querySelector('text')?.setAttribute('fill', presentation.foreground);
-            for (const circle of Array.from(group.querySelectorAll('circle'))) circle.setAttribute('fill', presentation.background);
+            const rect = group.querySelector('rect');
+            if (!rect) continue;
+            if (group.classList.contains('is-match')) rect.setAttribute('fill', presentation.highlight);
+            const active = group.classList.contains('is-current-match') || group.classList.contains('is-reading')
+                || group.classList.contains('is-selected');
+            if (active) { rect.setAttribute('stroke', presentation.accent); rect.setAttribute('stroke-width', '1.6'); }
         }
         for (const el of Array.from(scene.querySelectorAll('[tabindex], [role]'))) {
             el.removeAttribute('tabindex'); el.removeAttribute('role');

@@ -61,7 +61,7 @@ export class ObsidianDocumentHost implements DocumentCommitAdapter {
     private watchSave(view: MarkdownView): void {
         if (this.intercepted.has(view)) return;
         const host = this;
-        this.intercepted.set(view, around(view, { save: original => function (...args: Parameters<MarkdownView['save']>) {
+        this.intercepted.set(view, around(view, { save: original => function (this: MarkdownView, ...args: Parameters<MarkdownView['save']>) {
             const run = () => {
                 const result = Promise.resolve(original.apply(this, args));
                 host.saves.add(result);

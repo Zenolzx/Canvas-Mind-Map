@@ -5,6 +5,8 @@ import { markdown } from '@codemirror/lang-markdown';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { normalizeEditorText, SectionTextBuffer } from '../document';
 import { sectionTextExtension } from './SectionEditorState';
+import { windowTimers } from '../design/timers';
+import { t } from '../i18n';
 
 export class SectionEditorController {
     private view?: EditorView;
@@ -16,8 +18,10 @@ export class SectionEditorController {
     private title: HTMLElement;
     private status: HTMLElement;
     private container: HTMLElement;
+    private timers: ReturnType<typeof windowTimers>;
     constructor(parent: HTMLElement, private save: (raw: string, cursor: number) => Promise<void>,
         private fallbackUndo: () => void, private openLink?: (link: string) => void, private focusMap?: () => void) {
+        this.timers = windowTimers(() => parent.ownerDocument?.defaultView ?? window);
         this.title = parent.createEl('h3');
         this.status = parent.createDiv({ cls: 'cmm-writing-editor-status' });
         this.container = parent.createDiv({ cls: 'cmm-writing-editor-content' });
@@ -51,16 +55,19 @@ export class SectionEditorController {
                     const line = view.state.doc.lineAt(position), offset = position - line.from;
                     const pattern = /\[\[([^\]\n]+)\]\]|\[[^\]\n]*\]\(([^)\n]+)\)/g;
                     let match: RegExpExecArray | null;
-                    while ((match = pattern.exec(line.text))) if (offset >= match.index && offset <= match.index + match[0].length) {
-                        this.openLink((match[1]?.split('|')[0] ?? match[2]).trim()); return true;
+                    while ((match = pattern.exec(line.text))) {
+                        const target = (match[1]?.split('|')[0] ?? match[2])?.trim();
+                        if (offset >= match.index && offset <= match.index + (match[0]?.length ?? 0) && target) {
+                            this.openLink(target); return true;
+                        }
                     }
                     return false;
                 } }),
                 EditorView.updateListener.of(update => {
                     if (!update.docChanged) return;
-                    this.status.textContent = '尚未保存…';
-                    if (this.timer) clearTimeout(this.timer);
-                    this.timer = setTimeout(() => { void this.flush(); }, 650);
+                    this.status.textContent = t('尚未保存…');
+                    this.timers.clear(this.timer);
+                    this.timer = this.timers.set(() => { void this.flush(); }, 650);
                 }),
             ] }) });
         if (focused) this.view.focus();
@@ -75,15 +82,15 @@ export class SectionEditorController {
     focus(): void { this.view?.focus(); }
     async flush(): Promise<boolean> {
         if (this.pending) return this.pending;
-        if (this.timer) clearTimeout(this.timer);
+        this.timers.clear(this.timer);
         this.timer = undefined;
         if (!this.dirty) return true;
         if (this.composing) {
-            this.timer = setTimeout(() => { void this.flush(); }, 200); return false;
+            this.timer = this.timers.set(() => { void this.flush(); }, 200); return false;
         }
         const raw = this.raw, cursor = this.cursor, editor = this.view;
         editor?.dispatch({ effects: this.readonlyAccess.reconfigure(EditorState.readOnly.of(true)) });
-        this.status.textContent = '正在保存…';
+        this.status.textContent = t('正在保存…');
         const work = (async () => {
             try {
                 await this.save(raw, cursor);
@@ -101,5 +108,5 @@ export class SectionEditorController {
         this.pending = work; return work;
     }
     markSaved(): void { this.saved = this.raw; }
-    destroy(): void { if (this.timer) clearTimeout(this.timer); this.view?.destroy(); }
+    destroy(): void { this.timers.clear(this.timer); this.view?.destroy(); }
 }

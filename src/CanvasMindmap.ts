@@ -1,5 +1,5 @@
 import { buildMindMapModel } from './core/MindMapModel';
-import { updateAppearanceParallax } from './appearance/AppearanceParallax';
+
 import type { MindMapModel } from './core/MindMapModel';
 import { readSourceDocument, supportedSource } from './formats/SourceFormats';
 import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
@@ -82,7 +82,6 @@ export class CanvasMindmap {
                 },
                 requestFrame: (next: Canvas['requestFrame']) => function(this: Canvas) {
                     next.call(this);
-                    feature.updateAppearanceParallax(this);
                     feature.schedule(this);
                 },
                 requestSave: (next: Canvas['requestSave']) => function(this: Canvas, history?: boolean) {
@@ -162,7 +161,7 @@ export class CanvasMindmap {
         const canvas = (view as CanvasView).canvas;
         if (!canvas || canvas.selection.size !== 1) return;
         const node = Array.from(canvas.selection)[0];
-        if (!canvas.nodes.has(node.id)) return;
+        if (!node || !canvas.nodes.has(node.id)) return;
         return { canvas, node };
     }
 
@@ -262,17 +261,8 @@ export class CanvasMindmap {
         if (!content) return;
         const themed = data.nodes.some(node => !!meta(node));
         content.classList.toggle('cmm-themed-canvas', themed);
-        if (themed) { this.plugin.applyAppearance?.(content); this.updateAppearanceParallax(canvas); }
+        if (themed) this.plugin.applyAppearance?.(content);
         else this.plugin.clearAppearance?.(content);
-    }
-
-    private updateAppearanceParallax(canvas: Canvas): void {
-        const content = canvas.view?.contentEl;
-        if (!content?.classList.contains('cmm-themed-canvas') || content.dataset.cmmAppearance === 'white') return;
-        const surface = content.querySelector('.canvas-wrapper');
-        if (!surface) return;
-        const state = canvas.getState();
-        updateAppearanceParallax(surface, state.x, state.y, 1 + state.zoom * .1);
     }
 
     /** Focus folding is view-local: it never changes the serialized expansion flags. */
@@ -343,7 +333,9 @@ export class CanvasMindmap {
     }
 
     private style(depth: number): MindmapLevelStyle {
-        return { ...this.plugin.settings.mindmapLevels[Math.min(depth, 6)] };
+        // The level list covers depths 0-6; deeper nodes reuse the last entry.
+        const levels = this.plugin.settings.mindmapLevels;
+        return { ...(levels[Math.min(depth, 6)] ?? levels[levels.length - 1] ?? DEFAULT_MINDMAP_LEVELS[1]!) };
     }
 
     private makeNodes(canvas: Canvas, root: CanvasNode, raw: string, mode: 'title' | 'body', external?: MindMapModel): AllCanvasNodeData[] {
@@ -455,7 +447,7 @@ export class CanvasMindmap {
         const dialog = new Modal(this.plugin.app);
         dialog.setTitle(t('显示到第几层'));
         new Setting(dialog.contentEl).setName(t('中心为第 0 层')).setDesc(t('统一重设整张导图的展开状态。'))
-            .addSlider(slider => slider.setLimits(0, 6, 1).setValue(depth).setDynamicTooltip().onChange(value => { depth = value; }));
+            .addSlider(slider => slider.setLimits(0, 6, 1).setValue(depth).onChange(value => { depth = value; }));
         new Setting(dialog.contentEl).addButton(button => button.setButtonText(t('应用')).setCta().onClick(() => {
             const data = this.readData(canvas), selected = data.nodes.find(node => node.id === id);
             const state = selected && meta(selected);
@@ -904,6 +896,8 @@ export class CanvasMindmap {
             for (const node of added) list.createEl('p', { text: meta(node)!.title || t('无标题') });
             new Setting(dialog.contentEl)
                 .addButton(button => button.setButtonText(t('取消')).onClick(() => dialog.close()))
+                // setDestructive() requires Obsidian 1.13 while manifest minAppVersion is 1.7.7, so the
+                // deprecated setWarning() is the compatible choice until the minimum is raised.
                 .addButton(button => button.setButtonText(t('确认刷新')).setWarning().onClick(() => { confirmed = true; dialog.close(); }));
             dialog.onClose = () => { dialog.contentEl.empty(); resolve(confirmed); };
             dialog.open();
@@ -1143,7 +1137,7 @@ function styleFields(container: HTMLElement, style: MindmapLevelStyle, save: () 
     new Setting(container).setName(t('自动高度')).setDesc(t('按内容增高；手动拖动高度后保留你的调整。'))
         .addToggle(toggle => toggle.setValue(style.autoHeight).onChange(value => { style.autoHeight = value; save(); }));
     new Setting(container).setName(t('背景颜色')).setDesc(t('留空使用默认颜色，1–6 使用画布颜色，或输入 #RRGGBB。'))
-        .addText(text => text.setValue(style.color).setPlaceholder('#7c8cf8').onChange(raw => {
+        .addText(text => text.setValue(style.color).setPlaceholder('#7C8cf8').onChange(raw => {
             const value = raw.trim(), valid = /^(|[1-6]|#[\da-fA-F]{6})$/.test(value);
             text.inputEl.setAttribute('aria-invalid', String(!valid));
             if (valid) { style.color = value; save(); }

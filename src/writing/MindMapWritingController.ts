@@ -1,4 +1,5 @@
 import { App, Menu, Notice } from 'obsidian';
+import { t } from '../i18n';
 import { DOCUMENT_INTRODUCTION, DOCUMENT_ROOT, DocumentChangeCoordinator, DocumentCommitAdapter,
     DocumentStructure, DocumentStructureParser, StructureOperation, StructureViewSnapshot, subtreeSections } from '../document';
 import { SectionEditorController } from './SectionEditorController';
@@ -157,7 +158,7 @@ export class MindMapWritingController {
             const old = this.document.sections.get(this.selected);
             await this.coordinator.refresh();
             const candidates = [...this.document.sections.values()].filter(s => s.headingText === old?.headingText && s.headingLevel === old?.headingLevel);
-            this.selected = candidates.length === 1 ? candidates[0].id : DOCUMENT_ROOT;
+            this.selected = candidates.length === 1 ? (candidates[0]?.id ?? DOCUMENT_ROOT) : DOCUMENT_ROOT;
             this.emit(); this.bindEditor(); return true;
         } catch (error) { this.report(error); return false; }
     }
@@ -169,15 +170,15 @@ export class MindMapWritingController {
         const group = Array.from(this.surface.querySelectorAll<SVGGElement>('[data-node-id]')).find(el => el.getAttribute('data-node-id') === id);
         const rect = group?.getBoundingClientRect(), parent = this.overlay.getBoundingClientRect();
         this.draft = { kind, id };
-        const input = this.overlay.createEl('input', { cls: 'cmm-writing-inline', attr: { 'aria-label': kind === 'rename' ? 'Rename heading' : 'New heading' } });
+        const input = this.overlay.createEl('input', { cls: 'cmm-writing-inline', attr: { 'aria-label': kind === 'rename' ? t('重命名标题') : t('新标题') } });
         this.input = input;
         input.value = kind === 'rename' ? this.document.sections.get(id)?.headingText ?? '' : '';
-        input.placeholder = '输入标题';
+        input.placeholder = t('输入标题');
         input.setCssStyles({ left: `${Math.max(8, Math.min((rect?.left ?? parent.left + 20) - parent.left, parent.width - 250))}px` });
         input.setCssStyles({ top: `${Math.max(8, (rect?.top ?? parent.top + 30) - parent.top + (kind === 'rename' ? 0 : 36))}px` });
         input.onkeydown = event => {
             event.stopPropagation();
-            if (event.isComposing || event.keyCode === 229) return;
+            if (event.isComposing) return;
             if (event.key === 'Escape') { event.preventDefault(); this.cancelInline(); }
             if (event.key !== 'Enter' && event.key !== 'Tab') return;
             event.preventDefault();
@@ -206,22 +207,22 @@ export class MindMapWritingController {
     menu(id: string, event: MouseEvent): void {
         const menu = new Menu();
         const item = (title: string, action: () => unknown) => menu.addItem(entry => entry.setTitle(title).onClick(() => { void action(); }));
-        item('编辑直属正文', async () => { await this.select(id); this.editor.focus(); });
-        if (id !== DOCUMENT_ROOT) item('重命名', () => this.inline('rename', id));
-        item('添加子章节', () => this.inline('child', id));
+        item(t('编辑直属正文'), async () => { await this.select(id); this.editor.focus(); });
+        if (id !== DOCUMENT_ROOT) item(t('重命名'), () => this.inline('rename', id));
+        item(t('添加子章节'), () => this.inline('child', id));
         if (id !== DOCUMENT_ROOT) {
-            item('添加同级章节', () => this.inline('sibling', id)); menu.addSeparator();
-            item('提升章节', () => this.execute({ type: 'promote', nodeId: id }));
-            item('降为前一章节的子章节', () => this.execute({ type: 'demote', nodeId: id }));
+            item(t('添加同级章节'), () => this.inline('sibling', id)); menu.addSeparator();
+            item(t('提升章节'), () => this.execute({ type: 'promote', nodeId: id }));
+            item(t('降为前一章节的子章节'), () => this.execute({ type: 'demote', nodeId: id }));
         }
-        menu.addSeparator(); item('聚焦此分支', () => this.hooks.focus(id)); item('阅读模式', () => this.hooks.reading());
-        if (id !== DOCUMENT_ROOT) { menu.addSeparator(); item('删除章节…', () => this.remove(id)); }
+        menu.addSeparator(); item(t('聚焦此分支'), () => this.hooks.focus(id)); item(t('阅读模式'), () => this.hooks.reading());
+        if (id !== DOCUMENT_ROOT) { menu.addSeparator(); item(t('删除章节…'), () => this.remove(id)); }
         menu.showAtMouseEvent(event);
     }
     private key(event: KeyboardEvent): void {
         if (!this.active) return;
         if ((event.target as Element | null)?.closest('[role="button"]') && (event.key === 'Enter' || event.key === ' ')) return;
-        if (event.isComposing || event.keyCode === 229) return;
+        if (event.isComposing) return;
         const mod = event.ctrlKey || event.metaKey, id = this.selected;
         let action: (() => unknown) | undefined;
         if (mod && event.key.toLowerCase() === 'z') action = () => this.history(event.shiftKey ? 'redo' : 'undo');

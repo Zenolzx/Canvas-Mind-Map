@@ -28,7 +28,12 @@ function descendants(parent: Node, name: string): Element[] {
 }
 function endOf(blocks: DocxBlock[], start: number, level: number): number {
     let end = start + 1;
-    while (end < blocks.length && (!blocks[end].headingLevel || blocks[end].headingLevel > level)) end++;
+    while (end < blocks.length) {
+        const headingLevel = blocks[end]?.headingLevel ?? 0;
+        // A deeper heading belongs to this section; the first sibling or shallower heading ends it.
+        if (headingLevel && headingLevel <= level) break;
+        end++;
+    }
     return end;
 }
 function blockFor(parsed: DocxParsed, id: string): DocxBlock {
@@ -59,6 +64,7 @@ function paragraph(document: Document, text: string, level = 0, template?: Eleme
     run.appendChild(value); p.appendChild(run); return p;
 }
 function replaceHeading(block: DocxBlock, title: string): void {
+    // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
     if (!title.trim() || /[\r\n\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(title))
         throw new Error('标题必须是非空的单行文字，且不能包含控制字符。');
     const element = block.element;
@@ -68,8 +74,8 @@ function replaceHeading(block: DocxBlock, title: string): void {
         while (fresh.firstChild) element.appendChild(fresh.firstChild);
         return;
     }
-    texts[0].textContent = title.trim();
-    texts[0].setAttribute('xml:space', 'preserve');
+    texts[0]!.textContent = title.trim();
+    texts[0]!.setAttribute('xml:space', 'preserve');
     for (const text of texts.slice(1)) text.textContent = '';
 }
 function directBody(parsed: DocxParsed, id: string): DocxBlock[] {
@@ -77,7 +83,7 @@ function directBody(parsed: DocxParsed, id: string): DocxBlock[] {
         ? parsed.blocks.length : parsed.blocks.findIndex(block => block.headingLevel));
     const heading = blockFor(parsed, id);
     let end = heading.index + 1;
-    while (end < parsed.blocks.length && !parsed.blocks[end].headingLevel) end++;
+    while (end < parsed.blocks.length && !parsed.blocks[end]?.headingLevel) end++;
     return parsed.blocks.slice(heading.index + 1, end);
 }
 export function editableDocxBody(parsed: DocxParsed, id: string): boolean {
@@ -93,18 +99,20 @@ function apply(parsed: DocxParsed, operation: DocxOperation): void {
     if (operation.type === 'rename') { replaceHeading(blockFor(parsed, operation.id), operation.title); return; }
     if (operation.type === 'body') {
         if (!editableDocxBody(parsed, operation.id)) throw new Error('本节含复杂格式、图片或表格，正文只读。');
+        // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
         if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(operation.text)) throw new Error('正文含不允许写入 DOCX 的控制字符。');
         const current = directBody(parsed, operation.id);
-        const reference = current.length ? current[current.length - 1].element.nextSibling :
+        const reference = current.length ? current[current.length - 1]!.element.nextSibling :
             operation.id === 'document' ? blocks[0]?.element ?? first(body, 'sectPr') : blockFor(parsed, operation.id).element.nextSibling;
         for (const block of current) body.removeChild(block.element);
         const lines = operation.text.replace(/\r\n?/g, '\n').split('\n');
         if (lines.length === 1 && !lines[0]) return;
         for (let index = 0; index < lines.length; index++)
-            body.insertBefore(paragraph(parsed.xml, lines[index], 0, current[Math.min(index, current.length - 1)]?.element), reference ?? null);
+            body.insertBefore(paragraph(parsed.xml, lines[index] ?? '', 0, current[Math.min(index, current.length - 1)]?.element), reference ?? null);
         return;
     }
     if (operation.type === 'insert' && operation.id === 'document') {
+        // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
         if (!operation.title.trim() || /[\r\n\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(operation.title))
             throw new Error('标题必须是非空的单行文字，且不能包含控制字符。');
         body.insertBefore(paragraph(parsed.xml, operation.title.trim(), 1), first(body, 'sectPr') ?? null);
@@ -134,12 +142,13 @@ function apply(parsed: DocxParsed, operation: DocxOperation): void {
     const target = operation.type === 'move' ? blockFor(parsed, operation.target) : source;
     const targetEnd = endOf(blocks, target.index, target.headingLevel);
     let firstChild = target.index + 1;
-    while (firstChild < targetEnd && !blocks[firstChild].headingLevel) firstChild++;
+    while (firstChild < targetEnd && !blocks[firstChild]?.headingLevel) firstChild++;
     const insertion = operation.place === 'before' ? target.element :
         operation.place === 'after' ? blocks[targetEnd]?.element ?? first(body, 'sectPr') ?? null :
             blocks[firstChild]?.element ?? first(body, 'sectPr') ?? null;
     const level = operation.place === 'child' ? target.headingLevel + 1 : target.headingLevel;
     if (operation.type === 'insert') {
+        // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
         if (!operation.title.trim() || /[\r\n\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(operation.title))
             throw new Error('标题必须是非空的单行文字，且不能包含控制字符。');
         if (level > 6) throw new Error('标题层级不能超过 6。');

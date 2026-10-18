@@ -1,13 +1,17 @@
 import type { SavedOrganicState } from './OrganicViewState';
 import { normalizeWritingSnapshot } from '../writing/WritingViewSnapshot';
+import { ambientHost, windowTimers } from '../design/timers';
 
 export interface OrganicStoredData { version: 1; files: Record<string, SavedOrganicState> }
 export class OrganicStateStore {
     readonly data: OrganicStoredData = { version: 1, files: Object.create(null) };
     private timer?: ReturnType<typeof setTimeout>;
     private owners = new Map<string, object>();
+    private timers: ReturnType<typeof windowTimers>;
     constructor(saved: unknown, private save: () => Promise<void>, private enabled: () => boolean,
-        private onError: (error: unknown) => void = console.error) {
+        private onError: (error: unknown) => void = console.error,
+        host: () => Window | undefined = ambientHost) {
+        this.timers = windowTimers(host);
         if (!saved || typeof saved !== 'object') return;
         const input = saved as Partial<OrganicStoredData>;
         if (input.version !== 1 || !input.files || typeof input.files !== 'object') return;
@@ -33,8 +37,9 @@ export class OrganicStateStore {
     }
     rename(oldPath: string, path: string): void {
         for (const key of Object.keys(this.data.files)) if (key === oldPath || key.startsWith(oldPath + '/')) {
-            const target = path + key.slice(oldPath.length);
-            this.data.files[target] = this.data.files[key]; delete this.data.files[key];
+            const target = path + key.slice(oldPath.length), value = this.data.files[key];
+            if (value) this.data.files[target] = value;
+            delete this.data.files[key];
             const owner = this.owners.get(key); if (owner) this.owners.set(target, owner); this.owners.delete(key);
             this.schedule();
         }
@@ -46,12 +51,12 @@ export class OrganicStateStore {
     }
     reset(): Promise<void> { this.data.files = Object.create(null); this.owners.clear(); return this.flush(true); }
     private schedule(): void {
-        if (this.timer !== undefined) clearTimeout(this.timer);
-        this.timer = setTimeout(() => { void this.flush().catch(this.onError); }, 750);
+        this.timers.clear(this.timer);
+        this.timer = this.timers.set(() => { void this.flush().catch(this.onError); }, 750);
     }
     async flush(force = false): Promise<void> {
         if (this.timer === undefined && !force) return;
-        clearTimeout(this.timer); this.timer = undefined; await this.save();
+        this.timers.clear(this.timer); this.timer = undefined; await this.save();
     }
 }
 

@@ -1,8 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),esbuild=require('esbuild');
 const dir=path.resolve('tmp/composer-browser');fs.mkdirSync(dir,{recursive:true});
-const artDir=path.join(dir,'assets');fs.mkdirSync(artDir,{recursive:true});
-for(const name of ['ink-landscape.webp','cinnabar-landscape.webp','mint-leaves.webp','sakura-lake.webp'])
- fs.copyFileSync(path.resolve('assets',name),path.join(artDir,name));
 fs.writeFileSync(path.join(dir,'obsidian.cjs'),`
 const base=require('../../scripts/organic-browser-obsidian.cjs');Object.assign(exports,base);
 exports.ItemView=class extends base.ItemView {
@@ -48,7 +45,16 @@ const app={scope:{},vault:{on(){},getRoot:()=>files.get('/'),getAllLoadedFiles:(
 const host=new ObsidianDocumentHost(app);
 const leaf={app,setViewState:async state=>{await view.onClose();view.contentEl.remove();const organic=new OrganicMindMapView(leaf,undefined,()=>({animation:false,autoRefresh:false}),host);leaf.view=organic;await organic.onOpen();await organic.setState(state.state,{history:false});handoff=state;},detach(){}};
 const view=new ComposerView(leaf,store);
-(async()=>{await view.onOpen();await view.setState({targetFolder:'Projects'},{history:false});view.focusMap();window.composerTest={view,store,files,contents,setLanguage:async language=>{setLanguage(language);await view.refreshLanguage();},getDisk:()=>disk,getWrites:()=>writes,getCreated:()=>created,getHandoff:()=>handoff,setFail:v=>{fail=v;},seedFile:(path,text)=>{files.set(path,new TFile(path));contents.set(path,text);},seedTemplate:async key=>{const draft=fromTemplate(key,'Projects');store.put(draft);await view.setState({draftId:draft.draftId},{history:false});view.focusMap();}};window.ready=true;})();
+(async()=>{await view.onOpen();await view.setState({targetFolder:'Projects'},{history:false});view.focusMap();window.composerTest={view,store,files,contents,
+// Production sets the appearance axes on the view container and resolves the background image
+// itself (see main.applyAppearance). The fixture mirrors that: a preset is hue only, and the
+// surface material is a separate attribute.
+applyPreset:(preset,material)=>{const root=view.contentEl;root.dataset.cmmAppearance=preset;if(material)root.dataset.cmmMaterial=material;view.transform();},
+// Pin the capture to a canonical state so a screenshot does not depend on the pan/zoom history
+// that preceded it. Without this, captures taken from a fresh page load differ from captures
+// taken at the end of a workflow by ~3%, which no useful tolerance can absorb.
+freezeParallax:()=>{view.viewport.offset={x:0,y:0};view.viewport.scale=1;view.render();view.fit();view.transform();},
+setLanguage:async language=>{setLanguage(language);await view.refreshLanguage();},getDisk:()=>disk,getWrites:()=>writes,getCreated:()=>created,getHandoff:()=>handoff,setFail:v=>{fail=v;},seedFile:(path,text)=>{files.set(path,new TFile(path));contents.set(path,text);},seedTemplate:async key=>{const draft=fromTemplate(key,'Projects');store.put(draft);await view.setState({draftId:draft.draftId},{history:false});view.focusMap();}};window.ready=true;})();
 `;
 esbuild.buildSync({stdin:{contents:source,resolveDir:process.cwd(),loader:'ts'},bundle:true,format:'iife',platform:'browser',target:'chrome110',alias:{obsidian:path.join(dir,'obsidian.cjs'),'@codemirror/state':path.resolve('node_modules/@codemirror/state/dist/index.js')},outfile:path.join(dir,'test.js')});
 fs.writeFileSync(path.join(dir,'index.html'),`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font:14px Arial;background:#fffaf4;--background-primary:#fffaf4;--background-secondary:#f4eee5;--background-modifier-border:#ddd;--text-normal:#333;--text-muted:#777;--text-faint:#888;--text-on-accent:white;--text-accent:#287e83;--font-interface:Arial;--background-modifier-hover:#e8e3dd;--shadow-s:0 3px 12px #0001;--shadow-l:0 8px 32px #0002;--interactive-accent:#287e83;--text-error:#b33}.test-modal{position:fixed;inset:8% 15%;z-index:99;background:white;border:1px solid;padding:24px;overflow:auto}.test-menu{position:fixed;right:20px;top:50px;z-index:100;background:white;padding:8px;border:1px solid #ddd}.test-menu button{display:block;width:100%;text-align:left}button{cursor:pointer}${fs.readFileSync('styles.css','utf8')}</style></head><body><script src="test.js"></script></body></html>`);

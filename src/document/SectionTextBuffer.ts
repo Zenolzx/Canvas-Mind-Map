@@ -35,7 +35,7 @@ export class SectionTextBuffer {
         let high = this.crlfEnds.length;
         while (low < high) {
             const mid = (low + high) >>> 1;
-            if (this.crlfEnds[mid] <= editorOffset) low = mid + 1;
+            if ((this.crlfEnds[mid] ?? Number.POSITIVE_INFINITY) <= editorOffset) low = mid + 1;
             else high = mid;
         }
         return editorOffset + low;

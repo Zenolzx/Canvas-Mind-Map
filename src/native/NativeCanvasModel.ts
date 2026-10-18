@@ -83,7 +83,7 @@ export function descendants(nodes: AllCanvasNodeData[], id: string): AllCanvasNo
     const result: AllCanvasNodeData[] = [], seen = new Set([id]), queue = [...(children.get(id) ?? [])];
     for (let i = 0; i < queue.length; i++) {
         const node = queue[i];
-        if (seen.has(node.id)) continue;
+        if (!node || seen.has(node.id)) continue;
         seen.add(node.id); result.push(node); queue.push(...(children.get(node.id) ?? []));
     }
     return result;
@@ -264,9 +264,9 @@ export function layoutFocusedSubtree(data: CanvasData, options: FocusLayoutOptio
         if (dual) {
             const groups: [AllCanvasNodeData[], AllCanvasNodeData[]] = [[], []];
             let totals = [0, 0];
-            for (const branch of [...branches].sort((a, b) => spans.get(b.id)! - spans.get(a.id)!)) {
-                const index = totals[0] <= totals[1] ? 0 : 1;
-                groups[index].push(branch); totals[index] += spans.get(branch.id)!;
+            for (const branch of [...branches].sort((a, b) => (spans.get(b.id) ?? 0) - (spans.get(a.id) ?? 0))) {
+                const index = (totals[0] ?? 0) <= (totals[1] ?? 0) ? 0 : 1;
+                groups[index]?.push(branch); totals[index] = (totals[index] ?? 0) + (spans.get(branch.id) ?? 0);
             }
             placeBranch(groups[0], vertical ? anchor.x : anchor.y, 1);
             placeBranch(groups[1], vertical ? anchor.x : anchor.y, -1);

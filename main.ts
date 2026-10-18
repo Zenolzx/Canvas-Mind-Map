@@ -4,7 +4,7 @@ import { COMPOSER_VIEW, ComposerView, showDrafts, showTemplates } from './src/co
 import { around } from 'monkey-around';
 import type { CanvasNode, CanvasView } from './Canvas';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
-import { LAYOUT_LABEL_KEYS, MindmapSettings, normalizeAppearancePreset, normalizeOrganicSettings } from './src/settings';
+import { LAYOUT_LABEL_KEYS, MindmapLayout, MindmapSettings, normalizeAppearancePreset, normalizeBranchColourMode, normalizeMindmapTypeface, normalizeOrganicSettings, normalizeSurfaceMaterial } from './src/settings';
 import { PluginDataStore } from './src/PluginDataStore';
 import { OrganicStateStore } from './src/organic/OrganicStateStore';
 import { renderOrganicSettings } from './src/organic/OrganicSettings';
@@ -12,36 +12,46 @@ import { setLanguage, t, ct } from './src/i18n';
 import { ORGANIC_VIEW, OrganicMindMapView } from './src/organic/OrganicMindMapView';
 import { supportedSource } from './src/formats/SourceFormats';
 import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
-import inkLandscape from './assets/ink-landscape.webp';
-import cinnabarLandscape from './assets/cinnabar-landscape.webp';
-import mintLeaves from './assets/mint-leaves.webp';
-import sakuraLake from './assets/sakura-lake.webp';
-import { resetAppearanceParallax } from './src/appearance/AppearanceParallax';
 
 export default class CanvasMindMapPlugin extends Plugin {
-    settings: MindmapSettings;
-    mindmap: CanvasMindmap;
-    organicStates: OrganicStateStore;
-    composerDrafts: ComposerStore;
-    private dataStore: PluginDataStore;
+    // Assigned in onload(). Obsidian does not run the constructor itself, so these cannot be
+    // field initialisers; the definite-assignment modifier records that onload always sets them
+    // before any of the API surface can be reached.
+    settings!: MindmapSettings;
+    mindmap!: CanvasMindmap;
+    organicStates!: OrganicStateStore;
+    composerDrafts!: ComposerStore;
+    private dataStore!: PluginDataStore;
     private appearanceApplied = new WeakMap<HTMLElement, string>();
+    /** Tracks the undocumented Canvas prototype hooks, which can silently fail to install. */
+    private patchState: { total: number; landed: number; stop?: () => void } = { total: 0, landed: 0 };
 
     async onload(): Promise<void> {
-        const saved = await this.loadData() ?? {};
+        const saved: Record<string, unknown> = await this.loadData() ?? {};
         this.settings = {
             organic: normalizeOrganicSettings(saved.organic),
             appearance: normalizeAppearancePreset(saved.appearance),
+            branchColour: normalizeBranchColourMode(saved.branchColour),
+            surfaceMaterial: normalizeSurfaceMaterial(saved.surfaceMaterial),
+            typography: normalizeMindmapTypeface(saved.typography),
+            backgroundImage: typeof saved.backgroundImage === 'string' ? saved.backgroundImage : '',
+            backgroundImageStrength: typeof saved.backgroundImageStrength === 'number' && Number.isFinite(saved.backgroundImageStrength)
+                ? Math.max(0, Math.min(100, Math.round(saved.backgroundImageStrength))) : 35,
             mindmapLevels: normalizeMindmapLevels(saved.mindmapLevels),
             lastMode: saved.lastMode === 'body' ? 'body' : 'title',
             focusMode: saved.focusMode === 'dim' ? 'dim' : 'hide',
             compactFocus: saved.compactFocus !== false,
             language: saved.language === 'en' || saved.language === 'zh-CN' ? saved.language : 'auto',
-            lastLayout: Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout) ? saved.lastLayout : 'horizontal',
+            lastLayout: typeof saved.lastLayout === 'string' && Object.prototype.hasOwnProperty.call(LAYOUT_LABEL_KEYS, saved.lastLayout)
+                ? saved.lastLayout as MindmapLayout : 'horizontal',
         };
         this.dataStore = new PluginDataStore(() => ({ ...saved, ...this.settings, organicState: this.organicStates.data, composerDrafts: this.composerDrafts.persisted, composerPreferences: this.composerDrafts.preferences }), data => this.saveData(data));
-        this.composerDrafts = new ComposerStore(saved.composerDrafts, () => this.dataStore.save(), saved.composerPreferences);
+        this.composerDrafts = new ComposerStore(saved.composerDrafts, () => this.dataStore.save(), saved.composerPreferences,
+            () => new Notice(ct('Draft could not be saved. Use ⋯ → Copy recovery data before closing.')),
+            () => this.app.workspace.containerEl?.ownerDocument?.defaultView ?? window);
         this.organicStates = new OrganicStateStore(saved.organicState, () => this.dataStore.save(), () => this.settings.organic.rememberState,
-            error => { console.error('Organic state save failed', error); new Notice(t('Organic 状态保存失败，请查看控制台。')); });
+            error => { console.error('Organic state save failed', error); new Notice(t('Organic 状态保存失败，请查看控制台。')); },
+            () => this.app.workspace.containerEl?.ownerDocument?.defaultView ?? window);
         this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
             this.organicStates.rename(oldPath, file.path);
             this.composerDrafts.renameCreatedPath(oldPath, file.path);
@@ -63,8 +73,8 @@ export default class CanvasMindMapPlugin extends Plugin {
         const documentHost = new ObsidianDocumentHost(this.app);
         this.register(() => documentHost.dispose());
         this.registerEditorExtension(documentHost.extension);
-        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost, () => this.settings.appearance, el => this.applyAppearance(el)));
-        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts, () => this.settings.appearance, el => this.applyAppearance(el)));
+        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour));
+        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour));
         const openComposer = async (draftId?: string, targetFolder?: string) => {
             const existing = draftId && this.app.workspace.getLeavesOfType(COMPOSER_VIEW).find(leaf => leaf.view.getState().draftId === draftId);
             if (existing) { await this.app.workspace.revealLeaf(existing); return; }
@@ -87,12 +97,12 @@ export default class CanvasMindMapPlugin extends Plugin {
             if (file instanceof TFolder) menu.addItem(item => item.setTitle(ct('New Mind Map Document here')).setIcon('file-plus-2').onClick(() => openComposer(undefined, file.path)));
         }));
         this.register(() => { void this.composerDrafts.flush().catch(console.error); });
-        this.addCommand({ id: 'toggle-mind-map-writing', name: 'Organic: Toggle Mind Map Writing', checkCallback: checking => {
+        this.addCommand({ id: 'toggle-mind-map-writing', name: 'Organic: Toggle mind map writing', checkCallback: checking => {
             const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
             if (!view) return false; if (!checking) void view.toggleWriting(); return true;
         } });
         for (const command of ['rename', 'sibling', 'child', 'promote', 'demote', 'delete', 'undo', 'redo', 'editor'] as const) {
-            this.addCommand({ id: `mind-map-writing-${command}`, name: `Mind Map Writing: ${command}`, checkCallback: checking => {
+            this.addCommand({ id: `mind-map-writing-${command}`, name: `Mind map writing: ${command}`, checkCallback: checking => {
                 const view = this.app.workspace.getActiveViewOfType(OrganicMindMapView);
                 if (!view?.isWriting) return false; if (!checking) view.writingCommand(command); return true;
             } });
@@ -145,33 +155,79 @@ export default class CanvasMindMapPlugin extends Plugin {
         const attempt = () => {
             if (patched || !patch()) return;
             patched = true;
+            this.patchState.landed++;
+            if (this.patchState.landed === this.patchState.total) this.stopWatchingPatches();
+        };
+        this.patchState.total++;
+        const leafEvent = this.app.workspace.on('active-leaf-change', attempt);
+        const layoutEvent = this.app.workspace.on('layout-change', attempt);
+        this.patchState.stop = () => {
             this.app.workspace.offref(leafEvent);
             this.app.workspace.offref(layoutEvent);
         };
-        const leafEvent = this.app.workspace.on('active-leaf-change', attempt);
-        const layoutEvent = this.app.workspace.on('layout-change', attempt);
         this.registerEvent(leafEvent);
         this.registerEvent(layoutEvent);
-        this.app.workspace.onLayoutReady(attempt);
+        this.app.workspace.onLayoutReady(() => {
+            attempt();
+            this.stopWatchingPatches();
+            // These patches hook undocumented Obsidian Canvas internals. If a future release
+            // renames one of them the patch simply never lands, which used to make every
+            // Canvas command disappear with no explanation at all.
+            if (this.patchState.landed < this.patchState.total) {
+                console.warn(`Canvas Mind Map: ${this.patchState.total - this.patchState.landed} of ` +
+                    `${this.patchState.total} Obsidian Canvas integration hooks did not install. ` +
+                    'Canvas mind map commands may be unavailable on this Obsidian version.');
+                new Notice(t('Canvas 导图集成未能挂载，部分命令可能不可用。请确认 Obsidian 版本并查看控制台。'), 10000);
+            }
+        });
         attempt();
+    }
+
+    private stopWatchingPatches(): void {
+        this.patchState.stop?.();
+        this.patchState.stop = undefined;
     }
 
     async saveSettings(): Promise<void> { await this.dataStore.save(); }
 
     applyAppearance(element: HTMLElement): void {
-        const preset = this.settings.appearance;
-        if (this.appearanceApplied.get(element) === preset) return;
-        element.querySelectorAll('.cmm-composer-stage, .cmm-organic-surface, .canvas-wrapper').forEach(resetAppearanceParallax);
-        element.dataset.cmmAppearance = preset;
-        const art = { ink: inkLandscape, cinnabar: cinnabarLandscape, breeze: mintLeaves, violet: sakuraLake, white: undefined }[preset];
-        if (art) element.style.setProperty('--cmm-art', `url("${art}")`);
-        else element.style.removeProperty('--cmm-art');
-        this.appearanceApplied.set(element, preset);
+        const { appearance, surfaceMaterial, typography, backgroundImage, backgroundImageStrength } = this.settings;
+        const key = JSON.stringify([appearance, surfaceMaterial, typography, backgroundImage, backgroundImageStrength]);
+        if (this.appearanceApplied.get(element) === key) return;
+        element.dataset.cmmAppearance = appearance;
+        element.dataset.cmmMaterial = surfaceMaterial;
+        element.dataset.cmmTypeface = typography;
+        const url = this.resourceUrl(backgroundImage);
+        // A user-supplied backdrop replaces the material rather than layering under it: a dot grid
+        // over a photograph is never something a reader wants, and the setting is exclusive by
+        // construction rather than by a rule the user has to discover.
+        if (url) {
+            element.dataset.cmmBackground = 'image';
+            element.style.setProperty('--cmm-background-image', `url("${url}")`);
+            element.style.setProperty('--cmm-background-strength', String(backgroundImageStrength / 100));
+        } else {
+            delete element.dataset.cmmBackground;
+            element.style.removeProperty('--cmm-background-image');
+            element.style.removeProperty('--cmm-background-strength');
+        }
+        this.appearanceApplied.set(element, key);
+    }
+
+    /** Resolve a vault-relative path to a resource URL; an unreadable path means "no image". */
+    private resourceUrl(path: string): string {
+        const trimmed = path.trim();
+        if (!trimmed) return '';
+        if (!(this.app.vault.getAbstractFileByPath(trimmed) instanceof TFile)) return '';
+        try { return this.app.vault.adapter.getResourcePath(trimmed); } catch { return ''; }
     }
 
     clearAppearance(element: HTMLElement): void {
         delete element.dataset.cmmAppearance;
-        element.style.removeProperty('--cmm-art');
+        delete element.dataset.cmmMaterial;
+        delete element.dataset.cmmTypeface;
+        delete element.dataset.cmmBackground;
+        element.style.removeProperty('--cmm-background-image');
+        element.style.removeProperty('--cmm-background-strength');
         this.appearanceApplied.delete(element);
     }
 

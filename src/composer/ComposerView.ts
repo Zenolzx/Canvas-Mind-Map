@@ -1,7 +1,7 @@
 import { ct } from '../i18n';
-import { App, ItemView, Menu, Modal, Notice, parseYaml, Scope, setIcon, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { App, ItemView, Menu, Modal, Notice, parseYaml, Platform, Scope, setIcon, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { OrganicLayoutEngine, OrganicLayoutResult } from '../organic/OrganicLayoutEngine';
-import { OrganicMindMapRenderer, svgElement } from '../organic/OrganicMindMapRenderer';
+import { DEFAULT_SURFACE, OrganicMindMapRenderer, svgElement } from '../organic/OrganicMindMapRenderer';
 import { OrganicViewportController } from '../organic/OrganicViewportController';
 import { ORGANIC_VIEW, OrganicMindMapView } from '../organic/OrganicMindMapView';
 import { sourceFingerprint } from '../organic/OrganicViewState';
@@ -11,8 +11,9 @@ import { COMPOSER_TEMPLATES, composerProjection, deleteSelection, draftStatistic
 import { DropHit, DropTarget, hitDrop, plainPreview, transferNodes } from './ComposerInteraction';
 import { emptySketch, FreeNote } from './ComposerModel';
 import { paintSketch, paintSketchNoteMove, paintSketchPreview, sketchBranchColor, sketchId, sketchLayout, SKETCH_NOTE_SIZE } from './ComposerSketch';
-import type { AppearancePreset } from '../settings';
-import { updateAppearanceParallax } from '../appearance/AppearanceParallax';
+import { RADIUS } from '../design/geometry';
+import type { AppearancePreset, BranchColourMode } from '../settings';
+
 
 export const COMPOSER_VIEW = 'canvas-mind-map-composer';
 export class ComposerView extends ItemView {
@@ -22,6 +23,13 @@ export class ComposerView extends ItemView {
     private renderer = new OrganicMindMapRenderer();
     private viewport = new OrganicViewportController();
     private result?: OrganicLayoutResult;
+    /**
+     * Branch identity carried between renders. The layout engine re-derives each top-level
+     * branch's side from subtree weight when it has no memory, so adding a single child reorders
+     * those weights and every branch swaps hemispheres — which the anchor pin then converts into
+     * a whole-scene translation. Keeping the assignment is what makes the map hold still.
+     */
+    private branchStyles: Record<string, { color: string; side: number }> = {};
     private svg!: SVGSVGElement; private scene!: SVGGElement;
     private stage!: HTMLElement; private panel!: HTMLElement; private body!: HTMLTextAreaElement;
     private breadcrumb!: HTMLElement; private status!: HTMLElement; private split!: HTMLElement;
@@ -30,6 +38,7 @@ export class ComposerView extends ItemView {
     private bodyPreview!: HTMLButtonElement; private ideaInput!: HTMLTextAreaElement;
     private expandedIdeas = new Set<string>(); private ideaQuery = '';
     private layoutRect?: DOMRect; private resizing = false;
+    private metricContext?: CanvasRenderingContext2D; private metricDocument?: Document; private measureFamily = 'sans-serif';
     private surfaceCleanups: (() => void)[] = []; private registeredCleanup = false;
     private autoPanel = false; private creating = false; private closed = false;
     private initialized = false; private dragCleanup?: () => void;
@@ -48,8 +57,9 @@ export class ComposerView extends ItemView {
         const ids = (this.draft.selections ?? [this.draft.selection]).filter(id => valid.has(id));
         return ids.length ? ids : [this.draft.selection];
     }
-    constructor(leaf: WorkspaceLeaf, private store: ComposerStore, private appearance: () => AppearancePreset = () => 'ink',
-        private applyAppearance?: (element: HTMLElement) => void) { super(leaf); }
+    constructor(leaf: WorkspaceLeaf, private store: ComposerStore, private appearance: () => AppearancePreset = () => 'obsidian',
+        private applyAppearance?: (element: HTMLElement) => void,
+        private branchColour: () => BranchColourMode = () => 'palette') { super(leaf); }
     getViewType(): string { return COMPOSER_VIEW; }
     getDisplayText(): string { return `${this.draft.root.title || ct('Untitled')} · Composer`; }
     getIcon(): string { return 'file-plus-2'; }
@@ -62,6 +72,9 @@ export class ComposerView extends ItemView {
         const draft = state.draftId && this.store.data[state.draftId];
         if (state.draftId && !draft) { new Notice(ct('This draft could not be found. Open a saved draft from Restore Composer Draft.')); }
         this.history = new ComposerHistory(draft ? clone(draft) : this.store.create(state.targetFolder));
+        // A different draft has different node ids, so the carried assignment no longer describes
+        // anything on screen.
+        this.branchStyles = {};
         this.initialized = true; this.store.put(this.draft);
         this.render();
         if (this.draft.viewport) {
@@ -74,6 +87,8 @@ export class ComposerView extends ItemView {
         this.surfaceCleanups.splice(0).forEach(cleanup => cleanup()); this.layoutRect = undefined; this.resizing = true;
         if (!this.registeredCleanup) { this.registeredCleanup = true; this.register(() => { this.surfaceCleanups.splice(0).forEach(cleanup => cleanup()); this.dragCleanup?.(); this.viewport.cancel(); this.renderer.close(); }); }
         this.contentEl.empty(); this.contentEl.addClass('cmm-organic-view', 'cmm-composer');
+        // Touch devices have no hover, so hover-only affordances are promoted to always-on.
+        if (Platform.isMobile) this.contentEl.addClass('is-touch');
         this.contentEl.dataset.cmmAppearance = this.appearance();
         this.applyAppearance?.(this.contentEl);
         this.scope = new Scope(this.app.scope);
@@ -210,18 +225,26 @@ export class ComposerView extends ItemView {
     private iconButton(button: HTMLButtonElement, icon: string, label: string): void {
         setIcon(button, icon); button.setAttribute('aria-label', label); button.title = label;
     }
-    private change(edit: (draft: ComposerDraft) => void, group = '', render = true): boolean {
+    private change(edit: (draft: ComposerDraft) => void, group = '', render = true, anchorEdit = true): boolean {
         const anchor = this.draft.selection;
-        try { this.history.change(edit, group); if (render) { this.render(true, anchor); this.ensureVisible(); } this.remember(); return true; }
+        try { this.history.change(edit, group); if (render) { this.render(anchorEdit, anchor); this.ensureVisible(); } this.remember(); return true; }
         catch (error) { new Notice(ct((error as Error).message)); return false; }
     }
     private remember(): void {
         if (!this.initialized || this.editingActive) return;
-        this.draft.viewport = this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600);
+        // The saved viewport centre is derived from the pane size, so a fabricated fallback would
+        // restore the draft at a wrong origin. Skip recording until the pane has been measured.
+        const width = this.svg?.clientWidth ?? 0, height = this.svg?.clientHeight ?? 0;
+        if (width > 0 && height > 0) this.draft.viewport = this.viewport.snapshot(width, height);
         this.store.put(this.draft); this.app.workspace.requestSaveLayout();
     }
     private updateStatus(): void {
-        if (this.status) this.status.textContent = this.store.status === 'Draft saved' ? ct('Saved') : this.store.status === 'Saving draft…' ? ct('Saving…') : ct(this.store.status);
+        if (!this.status) return;
+        const status = this.store.status;
+        this.status.textContent = status === 'Draft saved' ? ct('Saved')
+            : status === 'Saving draft…' ? ct('Saving…')
+            : status === 'Draft not saved yet' ? ct('Not saved yet')
+            : ct(status);
     }
     private render(anchor = false, anchorId = this.draft.selection): void {
         if (!this.scene) return;
@@ -229,45 +252,76 @@ export class ComposerView extends ItemView {
         if (this.selectedAnnotation && !this.draft.sketch?.annotations.some(a => a.id === this.selectedAnnotation)) this.selectedAnnotation = undefined;
         if (this.selectedLink && !this.draft.sketch?.links.some(l => l.id === this.selectedLink)) this.selectedLink = undefined;
         const old = this.result?.nodes.find(n => n.id === anchorId);
-        const canvas = this.contentEl.ownerDocument.createElement('canvas'), context = canvas.getContext('2d');
+        const context = this.measureContext();
         const matches = searchDraft(this.draft, this.query, this.searchScope);
         this.searchIndex = matches.length ? Math.min(this.searchIndex, matches.length - 1) : 0;
         const projection = composerProjection(this.draft, matches[this.searchIndex]);
         const automatic = this.engine.layout(projection.model, { style: this.draft.layout, fontScale: this.draft.layout === 'compact-organic' ? .72 : .8, branchWidth: 1.8,
-            collapsed: projection.collapsed,
-            measureText: (text, size, weight) => { if (!context) return text.length * size * .6; context.font = `${weight} ${size}px sans-serif`; return context.measureText(text).width; } });
+            collapsed: projection.collapsed, branchStyles: this.branchStyles, referenceModel: projection.reference,
+            measureText: (text, size, weight) => { context.font = `${weight} ${size}px ${this.measureFamily}`; return context.measureText(text).width; } });
+        if (automatic.branchStyles) this.branchStyles = automatic.branchStyles;
         const next = this.draft.mode === 'sketch' ? sketchLayout(automatic, this.draft.sketch ?? emptySketch()) : automatic;
         const current = next.nodes.find(n => n.id === anchorId);
         if (anchor && old && current) this.viewport.pan((old.x - current.x) * this.viewport.scale, (old.y - current.y) * this.viewport.scale);
-        next.nodes.forEach(node => { node.color = 'var(--cmm-ink)'; });
+        const palette = this.branchColour() === 'palette';
+        next.nodes.forEach(node => { node.color = palette && node.depth > 0 ? node.color : 'var(--cmm-ink)'; });
         next.branches.forEach(branch => { branch.color = this.draft.mode === 'sketch'
-            ? sketchBranchColor(next.nodes.find(n => n.id === branch.childId)?.rootBranchId ?? branch.childId) : 'var(--cmm-branch)'; });
+            ? sketchBranchColor(next.nodes.find(n => n.id === branch.childId)?.rootBranchId ?? branch.childId)
+            : palette ? branch.color : 'var(--cmm-branch)'; });
         this.result = next;
         this.renderer.render(this.scene, next, { navigate: (id, event) => this.select(id, event), toggle: id => this.change(draft => { const node = this.node(id, draft); node.collapsed = !node.collapsed; }),
             toggleLabel: collapsed => collapsed ? ct('Expand branch') : ct('Collapse branch'), selected: this.selectedNote ? null : this.draft.selection,
             matches: new Set(matches), currentMatch: matches[this.searchIndex],
+            surface: this.draft.mode === 'sketch'
+                // Free placement draws its own hand-drawn outline, so the card is flattened away.
+                ? { ...DEFAULT_SURFACE, cardFill: 'none', rootFill: 'none', cardStroke: 'none', rootStroke: 'none', cardStrokeWidth: 0, rootStrokeWidth: 0 }
+                : { ...DEFAULT_SURFACE, cardFill: 'var(--cmm-node-fill, var(--cmm-paper-raised))' },
             contextMenu: (id, event) => { if (!this.selected.includes(id)) this.select(id); this.nodeMenu(event); } });
         if (this.draft.mode === 'sketch') paintSketch(this.scene, next, this.draft.sketch ?? emptySketch(), this.selectedNote, this.selectedAnnotation, this.selectedLink);
         else this.scene.querySelector('.cmm-sketch-overlays')?.remove();
-        for (const group of Array.from(this.scene.querySelectorAll('[data-node-id]'))) {
+        // Node chrome is reused across renders: rebuilding it for every keystroke and drag frame
+        // was the dominant cost in this view.
+        const geometryById = new Map(next.nodes.map(n => [n.id, n]));
+        for (const group of Array.from(this.scene.querySelectorAll<SVGGElement>('[data-node-id]'))) {
             const id = group.getAttribute('data-node-id')!, node = this.node(id);
             group.classList.toggle('is-multiselected', !this.selectedNote && this.selected.includes(id)); group.classList.add(`is-${node.type}`);
-            const geometry = next.nodes.find(n => n.id === id)!;
-            const add = svgElement(this.contentEl.ownerDocument, 'g', { class: 'cmm-composer-node-add', role: 'button', tabindex: 0,
-                'aria-label': ct('Add child'), transform: `translate(${geometry.width + 5} ${geometry.height / 2 - 11})` });
-            add.append(svgElement(this.contentEl.ownerDocument, 'rect', { width: 22, height: 22, rx: 11 }));
-            const plus = svgElement(this.contentEl.ownerDocument, 'text', { x: 11, y: 16, 'text-anchor': 'middle' }); plus.textContent = '+'; add.append(plus);
-            const create = (event: Event) => { event.preventDefault(); event.stopPropagation(); this.select(id); this.add(true); };
-            add.addEventListener('pointerdown', event => event.stopPropagation()); add.addEventListener('click', create);
-            add.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') create(event); }); group.append(add);
-            if (node.type === 'todo') {
-                const check = svgElement(this.contentEl.ownerDocument, 'g', { role: 'checkbox', tabindex: '0', 'aria-label': ct('Complete ') + node.title, 'aria-checked': String(!!node.checked), transform: 'translate(-22 8)' });
-                check.append(svgElement(this.contentEl.ownerDocument, 'rect', { width: 16, height: 16, rx: 4, fill: node.checked ? 'var(--interactive-accent)' : 'var(--background-primary)', stroke: 'var(--text-muted)' }));
-                if (node.checked) check.append(svgElement(this.contentEl.ownerDocument, 'path', { d: 'M3 8 L7 12 L13 4', fill: 'none', stroke: 'var(--text-on-accent)', 'stroke-width': 2 }));
-                const toggle = (event: Event) => { event.preventDefault(); event.stopPropagation(); this.change(draft => { const todo = this.node(id, draft); todo.checked = !todo.checked; }); };
-                check.addEventListener('click', toggle); check.addEventListener('pointerdown', event => event.stopPropagation());
-                check.addEventListener('keydown', event => { if (event.key === ' ' || event.key === 'Enter') toggle(event); }); group.append(check);
+            const geometry = geometryById.get(id); if (!geometry) continue;
+            let add = group.querySelector<SVGGElement>('.cmm-composer-node-add');
+            if (!add) {
+                add = svgElement(this.contentEl.ownerDocument, 'g', { class: 'cmm-composer-node-add', role: 'button', tabindex: 0 });
+                // A pill badge at the card edge; the plus is drawn as a cross so it matches the
+                // other mark weights instead of using a text glyph.
+                const plus = svgElement(this.contentEl.ownerDocument, 'g', { class: 'cmm-composer-node-add-mark' });
+                plus.append(svgElement(this.contentEl.ownerDocument, 'path', {
+                    d: 'M 12 8 L 12 16 M 8 12 L 16 12',
+                    fill: 'none', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round' }));
+                add.append(svgElement(this.contentEl.ownerDocument, 'rect',
+                    { width: 24, height: 24, rx: RADIUS.pill, class: 'cmm-composer-node-add-box' }), plus);
+                const create = (event: Event) => { event.preventDefault(); event.stopPropagation(); this.select(id); this.add(true); };
+                // Obsidian does not synthesize a click from a real tap on SVG, so commit the press.
+                add.addEventListener('pointerup', event => { if (event.button === 0) create(event); });
+                add.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') create(event); });
             }
+            if (add.parentNode !== group) group.append(add);
+            add.setAttribute('aria-label', ct('Add child'));
+            add.setAttribute('transform', `translate(${geometry.width + 5} ${geometry.height / 2 - 11})`);
+            let check = group.querySelector<SVGGElement>('[role="checkbox"]');
+            if (node.type === 'todo') {
+                if (!check) {
+                    check = svgElement(this.contentEl.ownerDocument, 'g', { role: 'checkbox', tabindex: '0', transform: 'translate(-22 8)' });
+                    const toggle = (event: Event) => { event.preventDefault(); event.stopPropagation(); this.change(draft => { const todo = this.node(id, draft); todo.checked = !todo.checked; }); };
+                    check.addEventListener('pointerup', event => { if (event.button === 0) toggle(event); });
+                    check.addEventListener('keydown', event => { if (event.key === ' ' || event.key === 'Enter') toggle(event); });
+                    group.append(check);
+                }
+                check.setAttribute('aria-label', ct('Complete {title}', { title: node.title }));
+                check.setAttribute('aria-checked', String(!!node.checked));
+                check.replaceChildren(
+                    svgElement(this.contentEl.ownerDocument, 'rect', { width: 16, height: 16, rx: RADIUS.xs,
+                        fill: node.checked ? 'var(--interactive-accent)' : 'var(--background-primary)', stroke: 'var(--text-muted)' }),
+                    ...(node.checked ? [svgElement(this.contentEl.ownerDocument, 'path',
+                        { d: 'M3 8 L7 12 L13 4', fill: 'none', stroke: 'var(--text-on-accent)', 'stroke-width': 2 })] : []));
+            } else check?.remove();
         }
         this.transform(); this.syncBody(); this.applyPanel(); this.updateStatus();
         this.renderDrawer();
@@ -277,9 +331,22 @@ export class ComposerView extends ItemView {
         this.emptyHint.hidden = !!this.draft.root.children.length;
         this.positionContext();
     }
+    /** One measurement context per view, matching the family the map actually renders with. */
+    private measureContext(): CanvasRenderingContext2D {
+        const doc = this.contentEl.ownerDocument;
+        if (!this.metricContext || this.metricDocument !== doc) {
+            const context = doc.createElement('canvas').getContext('2d');
+            if (!context) throw new Error('A 2D measurement context is required to lay out Composer.');
+            this.metricContext = context; this.metricDocument = doc;
+            const computed = doc.defaultView?.getComputedStyle(this.contentEl);
+            // Measurement and paint must agree, including the optional serif display face.
+            this.measureFamily = computed?.getPropertyValue('--cmm-font-display').trim()
+                || computed?.fontFamily || 'sans-serif';
+        }
+        return this.metricContext;
+    }
     private transform(): void {
         this.scene.setAttribute('transform', `translate(${this.viewport.offset.x} ${this.viewport.offset.y}) scale(${this.viewport.scale})`);
-        if (this.appearance() !== 'white') updateAppearanceParallax(this.stage, this.viewport.offset.x, this.viewport.offset.y, this.viewport.scale);
         this.positionContext();
     }
     private fit(): void { if (this.result) { this.viewport.fit(this.result.bounds, this.svg.clientWidth || 800, this.svg.clientHeight || 600); this.transform(); this.remember(); } }
@@ -342,6 +409,9 @@ export class ComposerView extends ItemView {
         const node = this.result?.nodes.find(n => n.id === this.draft.selection);
         if (node) {
             this.viewport.pan(old.left - rect.left, old.top - rect.top);
+            // The pan above is this method's own mutation, so repaint here: ensureVisible returns
+            // without transforming when the node is already inside its margins.
+            this.transform();
             this.ensureVisible();
         } else { this.viewport.pan((rect.width - old.width) / 2, (rect.height - old.height) / 2); this.transform(); }
         this.resizing = false; this.remember();
@@ -361,9 +431,17 @@ export class ComposerView extends ItemView {
         const matches = searchDraft(this.draft, this.query, this.searchScope);
         this.searchIndex = matches.length ? (this.searchIndex + matches.length) % matches.length : 0;
         if (matches.length) {
-            const id = matches[this.searchIndex]; this.draft.selection = id; this.draft.selections = [id];
-            const all = entries(this.draft, true); let entry = all.find(e => e.node.id === id);
-            if (entry?.unsorted) { this.drawerOpen = true; this.ideaQuery = ''; while (entry?.parent) { this.expandedIdeas.add(entry.parent.id); entry = all.find(e => e.node.id === entry!.parent!.id); } }
+            const id = matches[this.searchIndex];
+            if (id) { this.draft.selection = id; this.draft.selections = [id]; }
+            const all = entries(this.draft, true);
+            let parentId = all.find(e => e.node.id === id)?.parent?.id;
+            if (parentId && all.find(e => e.node.id === id)?.unsorted) {
+                this.drawerOpen = true; this.ideaQuery = '';
+                while (parentId) {
+                    this.expandedIdeas.add(parentId);
+                    parentId = all.find(e => e.node.id === parentId)?.parent?.id;
+                }
+            }
         }
         this.render(); this.ensureVisible(); this.searchInput.focus(); this.remember();
     }
@@ -412,19 +490,21 @@ export class ComposerView extends ItemView {
         this.ideaInput = this.drawer.createEl('textarea', { cls: 'cmm-composer-capture', attr: { rows: '1', placeholder: ct('Capture an idea…'), 'aria-label': ct('Capture an idea…') } });
         const choices = this.drawer.createDiv({ cls: 'cmm-composer-paste-options' }); choices.hidden = true;
         const submit = (split = false) => {
-            const lines = this.ideaInput.value.split(/\r?\n/), title = lines[0].trim();
+            const lines = this.ideaInput.value.split(/\r?\n/), title = (lines[0] ?? '').trim();
             if (!this.ideaInput.value.trim() || (!split && !title)) return;
             this.finishName?.();
             const nodes = split ? lines.filter(line => line.trim()).map(line => newNode(line.trim(), 'idea')) : [newNode(title, 'idea')];
-            if (!split) nodes[0].body = lines.slice(1).join('\n').trim();
-            if (this.change(draft => { (draft.unsorted ??= []).push(...nodes); draft.selection = nodes[0].id; draft.selections = nodes.map(n => n.id); })) {
+            const first = nodes[0];
+            if (!first) return;
+            if (!split) first.body = lines.slice(1).join('\n').trim();
+            if (this.change(draft => { (draft.unsorted ??= []).push(...nodes); draft.selection = first.id; draft.selections = nodes.map(n => n.id); })) {
                 this.ideaInput.value = ''; choices.hidden = true; this.ideaInput.focus();
             }
         };
         this.button(choices, ct('As one idea'), () => submit()); this.button(choices, ct('Split into lines'), () => submit(true));
         this.ideaInput.oninput = () => { choices.hidden = !/[\r\n]/.test(this.ideaInput.value); };
         this.ideaInput.onkeydown = event => {
-            if (event.isComposing || event.keyCode === 229) return;
+            if (event.isComposing) return;
             if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); if (choices.hidden) submit(); else choices.querySelector('button')?.focus(); }
         };
         const search = this.drawer.createEl('input', { type: 'search', cls: 'cmm-composer-inbox-search', attr: { placeholder: ct('Search ideas'), 'aria-label': ct('Search ideas') } });
@@ -464,7 +544,9 @@ export class ComposerView extends ItemView {
     private documentProperties(): void {
         const modal = new Modal(this.app); modal.titleEl.setText(ct('Document properties'));
         modal.contentEl.createEl('p', { text: ct('YAML frontmatter, without --- delimiters. This is saved with the draft and placed before the introduction.') });
-        const input = modal.contentEl.createEl('textarea', { cls: 'cmm-composer-recovery', attr: { 'aria-label': ct('Frontmatter YAML'), placeholder: 'tags:\n  - research\nstatus: draft' } }); input.value = this.draft.frontmatter ?? '';
+        // A prose hint rather than a raw YAML sample: the sentence-case UI rule requires leading
+        // capitals, which is exactly what a YAML key cannot have.
+        const input = modal.contentEl.createEl('textarea', { cls: 'cmm-composer-recovery', attr: { 'aria-label': ct('Frontmatter YAML'), placeholder: ct('One key per line, for example tags or status') } }); input.value = this.draft.frontmatter ?? '';
         const error = modal.contentEl.createEl('p', { attr: { role: 'alert' } });
         this.button(modal.contentEl, ct('Cancel'), () => modal.close());
         this.button(modal.contentEl, ct('Save properties'), () => {
@@ -489,11 +571,24 @@ export class ComposerView extends ItemView {
     }
     private ensureVisible(): void {
         const node = this.result?.nodes.find(n => n.id === this.draft.selection); if (!node) return;
-        const x = node.x * this.viewport.scale + this.viewport.offset.x, y = node.y * this.viewport.scale + this.viewport.offset.y;
-        const width = node.width * this.viewport.scale, height = node.height * this.viewport.scale;
-        const dx = x < 24 ? 24 - x : x + width > this.svg.clientWidth - 24 ? this.svg.clientWidth - 24 - x - width : 0;
-        const dy = y < 24 ? 24 - y : y + height > this.svg.clientHeight - 24 ? this.svg.clientHeight - 24 - y - height : 0;
-        this.viewport.pan(dx, dy); this.transform();
+        const width = this.svg.clientWidth, height = this.svg.clientHeight;
+        // An unmeasured pane has no margins to respect. The bounds test below would invert and
+        // compute a full-scene translation from a zero-sized box, so do nothing instead.
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+        const scale = this.viewport.scale;
+        if (!Number.isFinite(scale) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+        const x = node.x * scale + this.viewport.offset.x, y = node.y * scale + this.viewport.offset.y;
+        const nodeWidth = node.width * scale, nodeHeight = node.height * scale;
+        // A node wider than the pane must not fight its own margins; shrink the inset to fit.
+        const marginX = Math.min(24, width / 4), marginY = Math.min(24, height / 4);
+        const dx = x < marginX ? marginX - x : x + nodeWidth > width - marginX ? width - marginX - x - nodeWidth : 0;
+        const dy = y < marginY ? marginY - y : y + nodeHeight > height - marginY ? height - marginY - y - nodeHeight : 0;
+        if (!Number.isFinite(dx) || !Number.isFinite(dy) || (!dx && !dy)) return;
+        // The computed delta is already the minimum that clears the margin, so it is applied as
+        // is: a node far off screen needs a correspondingly large pan, and capping it to a card's
+        // extent would leave that node permanently unreachable.
+        this.viewport.pan(dx, dy);
+        this.transform();
     }
     private add(child: boolean): void {
         this.finishName?.(); const id = this.draft.selection, node = newNode('');
@@ -509,9 +604,15 @@ export class ComposerView extends ItemView {
             if (source.unsorted) node.type = 'idea';
             if (asChild) source.node.collapsed = false;
             draft.selection = node.id; draft.selections = [node.id];
-        })) { this.history.endEdit(true); this.editingActive = false; return; }
+            // Adding a sibling re-centres its group in the layout, so pinning one node here would
+            // translate the whole scene by that reflow. Leave the viewport alone: ensureVisible is
+            // the only thing allowed to move it.
+        }, '', true, false)) { this.history.endEdit(true); this.editingActive = false; return; }
         if (!inInbox && !this.result?.nodes.some(n => n.id === node.id)) {
-            this.draft.focusNode = null; this.query = ''; this.searchInput.value = ''; this.render();
+            this.draft.focusNode = null; this.query = ''; this.searchInput.value = '';
+            // Re-render with the node that was being edited pinned, so leaving focus mode cannot
+            // translate the scene on top of the layout change.
+            this.render(true, id);
         }
         this.ensureVisible(); this.rename(true);
     }
@@ -551,7 +652,13 @@ export class ComposerView extends ItemView {
             if (finished) return; finished = true; this.finishName = undefined; this.nameInput = undefined;
             const title = input.value.replace(/[\r\n]+/g, ' ').trim(); input.remove(); foreign?.remove();
             if (!cancel && title) this.change(draft => { this.node(id, draft).title = title; }, `title:${id}`, false);
-            this.history.endEdit(cancel || !title); this.editingActive = false; this.render(true); this.remember();
+            this.history.endEdit(cancel || !title); this.editingActive = false;
+            // Committing the title of a brand-new node is still part of the same insertion, so it
+            // must not pin the new node and drag the scene with it. Naming an existing node keeps
+            // the usual pin so it does not drift away under the caret.
+            this.render(!fresh);
+            if (fresh) this.ensureVisible();
+            this.remember();
         };
         input.oninput = resize;
         input.onpaste = event => {
@@ -562,7 +669,7 @@ export class ComposerView extends ItemView {
         const finish = this.finishName;
         input.onblur = () => finish();
         input.onkeydown = event => {
-            if (event.isComposing || event.keyCode === 229) return;
+            if (event.isComposing) return;
             if (!['Enter', 'Tab', 'Escape'].includes(event.key)) return;
             event.preventDefault(); event.stopPropagation(); const value = input.value.trim();
             this.finishName?.(event.key === 'Escape'); this.stage.focus();
@@ -586,7 +693,7 @@ export class ComposerView extends ItemView {
         this.button(modal.contentEl, ct('Cancel'), () => modal.close()); modal.open();
     }
     private key(event: KeyboardEvent): void {
-        if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+        if (event.defaultPrevented || event.isComposing) return;
         const target = event.target as HTMLElement;
         if (target === this.nameInput) return;
         const mod = event.metaKey || event.ctrlKey;
@@ -760,9 +867,11 @@ export class ComposerView extends ItemView {
         const cleanup = () => { win.cancelAnimationFrame(frame); win.removeEventListener('pointermove', move); win.removeEventListener('pointerup', end); win.removeEventListener('pointercancel', cancel); this.dragCleanup = undefined; };
         const cancel = () => { cleanup(); if (nodeId) { if (previous) this.draft.sketch!.positions[nodeId] = previous; else if (this.draft.sketch) delete this.draft.sketch.positions[nodeId]; } else { const note = this.draft.sketch?.notes.find(n => n.id === noteId); if (note) note.position = origin; } this.render(); };
         const end = (e: PointerEvent) => { if (e.pointerId !== event.pointerId) return; cleanup(); if (!moved) return;
-            const position = nodeId ? this.draft.sketch!.positions[nodeId] : this.draft.sketch!.notes.find(n => n.id === noteId)!.position;
+            // The drag wrote the live position; fall back to where the pointer left it.
+            const position: { x: number; y: number } | undefined = nodeId ? this.draft.sketch?.positions[nodeId] : this.draft.sketch?.notes.find(n => n.id === noteId)?.position;
+            if (!position) return;
             if (nodeId) { if (previous) this.draft.sketch!.positions[nodeId] = previous; else delete this.draft.sketch!.positions[nodeId]; this.change(draft => { draft.sketch ??= emptySketch(); draft.sketch.positions[nodeId] = position; }, '', false); }
-            else { this.draft.sketch!.notes.find(n => n.id === noteId)!.position = origin; this.change(draft => { draft.sketch!.notes.find(n => n.id === noteId)!.position = position; }, '', false); }
+            else { const note = this.draft.sketch?.notes.find(n => n.id === noteId); if (note) note.position = origin; this.change(draft => { const target = draft.sketch?.notes.find(n => n.id === noteId); if (target) target.position = position; }, '', false); }
             this.render(); this.remember(); };
         this.dragCleanup = cleanup; win.addEventListener('pointermove', move); win.addEventListener('pointerup', end); win.addEventListener('pointercancel', cancel);
     }
@@ -877,7 +986,7 @@ export class ComposerView extends ItemView {
             if (moved) {
                 const suppress = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); };
                 this.contentEl.addEventListener('click', suppress, { capture: true, once: true });
-                setTimeout(() => this.contentEl.removeEventListener('click', suppress, true), 0);
+                win.setTimeout(() => this.contentEl.removeEventListener('click', suppress, true), 0);
             }
         };
         const cancel = () => cleanup();
@@ -915,7 +1024,7 @@ export class ComposerView extends ItemView {
             menu.addItem(item => item.setTitle(title).setChecked(this.draft.layout === value).onClick(() => { this.draft.layout = value; this.render(); this.fit(); this.remember(); }));
         });
         section(ct('Body'), menu => {
-        for (const value of ['auto', 'show', 'hide'] as const) menu.addItem(item => item.setTitle(ct(value[0].toUpperCase() + value.slice(1))).setChecked(this.draft.panel === value).onClick(() => { this.draft.panel = value; this.autoPanel = false; this.applyPanel(); this.remember(); }));
+        for (const value of ['auto', 'show', 'hide'] as const) menu.addItem(item => item.setTitle(ct((value[0] ?? '').toUpperCase() + value.slice(1))).setChecked(this.draft.panel === value).onClick(() => { this.draft.panel = value; this.autoPanel = false; this.applyPanel(); this.remember(); }));
         });
         menu.addSeparator();
         menu.addItem(item => item.setTitle(ct('Fit to view')).onClick(() => this.fit()));
@@ -937,7 +1046,7 @@ export class ComposerView extends ItemView {
                 const copies: string[] = [];
                 const copy = (node: ComposerNode): ComposerNode => ({ ...clone(node), id: newNode().id, children: node.children.map(copy) });
                 for (const entry of selectedRoots(draft, ids)) { const node = copy(entry.node), siblings = siblingsOf(draft, entry.node.id); siblings.splice(siblings.indexOf(entry.node) + 1, 0, node); copies.push(node.id); }
-                if (copies.length) { draft.selection = copies[0]; draft.selections = copies; }
+                if (copies.length) { draft.selection = copies[0] ?? draft.selection; draft.selections = copies; }
             });
         }));
         submenu(ct('Branch'), menu => {
@@ -956,24 +1065,54 @@ export class ComposerView extends ItemView {
     }
     private documentMenu(event: MouseEvent): void {
         const menu = new Menu();
-        menu.addItem(item => item.setTitle(ct('Rename document')).onClick(() => { this.select(this.draft.root.id); this.rename(false); }));
-        menu.addItem(item => item.setTitle(ct('Edit introduction')).onClick(() => { this.select(this.draft.root.id); this.openBody(); }));
-        menu.addItem(item => item.setTitle(ct('Add top-level section')).onClick(() => { this.select(this.draft.root.id); this.add(true); }));
-        menu.addItem(item => item.setTitle(ct('Use root as H1')).setChecked(this.draft.rootAsHeading).onClick(() => this.change(draft => { draft.rootAsHeading = !draft.rootAsHeading; })));
-        menu.addItem(item => item.setTitle(ct('Document Info')).onClick(() => { const modal = new Modal(this.app); modal.titleEl.setText(ct('Document Info')); for (const [key, value] of Object.entries(draftStatistics(this.draft))) modal.contentEl.createEl('p', { text: `${ct(key)}: ${value}` }); modal.open(); }));
-        menu.addItem(item => item.setTitle(ct('Document properties')).onClick(() => this.documentProperties()));
-        menu.addItem(item => item.setTitle(ct('New from template')).onClick(() => showTemplates(this.app, draft => { void this.openDraft({ ...draft, ...this.store.preferences }); }, this.draft.targetFolder)));
-        menu.addItem(item => item.setTitle(ct('Duplicate draft')).onClick(() => { this.finishName?.(); void this.openDraft(duplicateDraft(this.draft)); }));
-        menu.addItem(item => item.setTitle(ct('Copy outline')).onClick(() => this.copyOutline()));
-        menu.addItem(item => item.setTitle(ct('Retry draft save')).onClick(() => { void this.store.flush().catch(() => this.recovery()); }));
-        menu.addItem(item => item.setTitle(ct('Copy recovery data')).onClick(() => this.recovery()));
-        menu.addItem(item => item.setTitle(ct('Create Markdown Note')).onClick(() => this.createNote()));
-        menu.addSeparator(); menu.addItem(item => item.setTitle(ct('Discard draft')).onClick(() => {
+        const item = (title: string, action: () => unknown) =>
+            menu.addItem(entry => entry.setTitle(title).onClick(() => { void action(); }));
+        // Grouped rather than one flat list of thirteen entries: the primary action and the
+        // draft-lifecycle commands stay at the top level because they are used every session.
+        const section = (title: string, build: (target: Menu) => void) => menu.addItem(entry => {
+            entry.setTitle(title);
+            const nested = entry as typeof entry & { setSubmenu?: () => Menu };
+            // Older Obsidian builds lack submenus; fall back to flattening rather than hiding items.
+            if (nested.setSubmenu) build(nested.setSubmenu());
+            else build(menu);
+        });
+
+        section(ct('Document'), target => {
+            target.addItem(entry => entry.setTitle(ct('Rename document')).onClick(() => { this.select(this.draft.root.id); this.rename(false); }));
+            target.addItem(entry => entry.setTitle(ct('Edit introduction')).onClick(() => { this.select(this.draft.root.id); this.openBody(); }));
+            target.addItem(entry => entry.setTitle(ct('Add top-level section')).onClick(() => { this.select(this.draft.root.id); this.add(true); }));
+            target.addItem(entry => entry.setTitle(ct('Use root as H1'))
+                .setChecked(this.draft.rootAsHeading).onClick(() => this.change(draft => { draft.rootAsHeading = !draft.rootAsHeading; })));
+        });
+        section(ct('Metadata and info'), target => {
+            target.addItem(entry => entry.setTitle(ct('Document properties')).onClick(() => this.documentProperties()));
+            target.addItem(entry => entry.setTitle(ct('Document Info')).onClick(() => {
+                const modal = new Modal(this.app); modal.titleEl.setText(ct('Document Info'));
+                for (const [key, value] of Object.entries(draftStatistics(this.draft))) modal.contentEl.createEl('p', { text: `${ct(key)}: ${value}` });
+                modal.open();
+            }));
+        });
+        section(ct('Drafts'), target => {
+            target.addItem(entry => entry.setTitle(ct('New from template')).onClick(() =>
+                showTemplates(this.app, draft => { void this.openDraft({ ...draft, ...this.store.preferences }); }, this.draft.targetFolder)));
+            target.addItem(entry => entry.setTitle(ct('Duplicate draft')).onClick(() => { this.finishName?.(); void this.openDraft(duplicateDraft(this.draft)); }));
+            target.addItem(entry => entry.setTitle(ct('Copy outline')).onClick(() => this.copyOutline()));
+        });
+        section(ct('Saving and recovery'), target => {
+            target.addItem(entry => entry.setTitle(ct('Retry draft save')).onClick(() => { void this.store.flush().catch(() => this.recovery()); }));
+            target.addItem(entry => entry.setTitle(ct('Copy recovery data')).onClick(() => this.recovery()));
+        });
+
+        menu.addSeparator();
+        item(ct('Create Markdown Note'), () => this.createNote());
+        // Destructive actions are separated from the routine ones.
+        menu.addSeparator(); item(ct('Discard draft'), () => {
             const modal = new Modal(this.app); modal.titleEl.setText(ct('Discard “{title}”?', { title: this.draft.root.title }));
             modal.contentEl.createEl('p', { text: ct('This draft has not been converted to a Markdown note.') });
             this.button(modal.contentEl, ct('Cancel'), () => modal.close());
             this.button(modal.contentEl, ct('Discard'), () => { void (async () => { try { this.finishName?.(); await this.store.remove(this.draft.draftId); this.initialized = false; modal.close(); this.leaf.detach(); } catch { this.recovery(); } })(); }); modal.open();
-        })); menu.showAtMouseEvent(event);
+        });
+        menu.showAtMouseEvent(event);
     }
     private recovery(): void {
         const modal = new Modal(this.app); modal.titleEl.setText(ct('Draft recovery'));
@@ -1072,7 +1211,7 @@ export class ComposerView extends ItemView {
             const row = modal.contentEl.createDiv({ cls: 'cmm-composer-draft-row' });
             this.button(row, `${unsorted ? ct('Unsorted / ') : ''}${node.title}`, () => { modal.close(); if (unsorted) this.drawerOpen = true; this.select(node.id); this.ensureVisible(); });
             const type = row.createEl('select', { attr: { 'aria-label': ct('Type for {title}', { title: node.title }) } });
-            for (const value of ['idea', 'heading', 'todo']) type.createEl('option', { value, text: ct(value[0].toUpperCase() + value.slice(1)) });
+            for (const value of ['idea', 'heading', 'todo']) type.createEl('option', { value, text: ct((value[0] ?? '').toUpperCase() + value.slice(1)) });
             type.onchange = () => this.change(draft => { this.node(node.id, draft).type = type.value as ComposerNode['type']; });
         }
         this.button(modal.contentEl, ct('Back to Create Note'), () => { modal.close(); this.createNote(); }); modal.open();
@@ -1113,19 +1252,19 @@ export function showDrafts(app: App, store: ComposerStore, open: (id: string) =>
                 if (!title.value.trim()) return;
                 const active = app.workspace.getLeavesOfType(COMPOSER_VIEW).find(leaf => leaf.view.getState().draftId === draft.draftId)?.view as ComposerView | undefined;
                 if (active) active.renameDocument(title.value.trim());
-                else { const current = clone(store.data[draft.draftId]); current.root.title = title.value.trim(); current.updatedAt = Date.now(); store.put(current); }
+                else { const saved = store.data[draft.draftId]; if (!saved) return; const current = clone(saved); current.root.title = title.value.trim(); current.updatedAt = Date.now(); store.put(current); }
                 try { await store.flush(); button.textContent = title.value.trim(); editor.close(); } catch (error) { new Notice(String(error)); }
             })(); }; editor.open(); title.focus(); title.select();
         };
         const duplicate = row.createEl('button', { text: ct('Duplicate') });
         duplicate.onclick = () => { void (async () => {
-            try { const copy = duplicateDraft(store.data[draft.draftId]); store.put(copy); await store.flush(); await open(copy.draftId); modal.close(); }
+            try { const source = store.data[draft.draftId]; if (!source) return; const copy = duplicateDraft(source); store.put(copy); await store.flush(); await open(copy.draftId); modal.close(); }
             catch (error) { new Notice(String(error)); }
         })(); };
         const remove = row.createEl('button', { text: ct('Delete') });
         remove.onclick = () => {
             if (app.workspace.getLeavesOfType(COMPOSER_VIEW).some(leaf => leaf.view.getState().draftId === draft.draftId)) { new Notice(ct('Close this draft tab first, or use Discard draft in its document menu.')); return; }
-            const confirm = new Modal(app); confirm.titleEl.setText(ct('Discard “{title}”?', { title: store.data[draft.draftId].root.title }));
+            const confirm = new Modal(app); confirm.titleEl.setText(ct('Discard “{title}”?', { title: store.data[draft.draftId]?.root.title ?? draft.root.title }));
             confirm.contentEl.createEl('p', { text: ct('This removes the saved draft, including unsorted ideas.') });
             const cancel = confirm.contentEl.createEl('button', { text: ct('Cancel') }); cancel.onclick = () => confirm.close();
             const discard = confirm.contentEl.createEl('button', { text: ct('Discard') });

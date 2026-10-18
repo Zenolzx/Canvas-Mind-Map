@@ -1,7 +1,9 @@
 import { App, Menu, Modal, Notice } from 'obsidian';
+import { t } from '../i18n';
 import { DocxEditor, DocxOperation } from '../formats/DocxEditor';
 import type { MindMapModel } from '../core/MindMapModel';
 import { showDraftRecovery } from './WritingDialogs';
+import { windowTimers } from '../design/timers';
 
 export class DocxWritingController {
     active = true;
@@ -17,15 +19,17 @@ export class DocxWritingController {
     private status: HTMLElement;
     private textarea: HTMLTextAreaElement;
     private abort = new AbortController();
+    private timers: ReturnType<typeof windowTimers>;
     constructor(private app: App, readonly source: DocxEditor, private surface: SVGSVGElement,
         editorPane: HTMLElement, private publish: (model: MindMapModel, selected: string) => void) {
+        this.timers = windowTimers(() => surface.ownerDocument?.defaultView ?? window);
         this.heading = editorPane.createEl('h3');
         this.status = editorPane.createDiv({ cls: 'cmm-writing-editor-status' });
-        this.textarea = editorPane.createEl('textarea', { cls: 'cmm-docx-body-editor', attr: { 'aria-label': 'DOCX 章节正文' } });
+        this.textarea = editorPane.createEl('textarea', { cls: 'cmm-docx-body-editor', attr: { 'aria-label': t('DOCX 章节正文') } });
         this.textarea.addEventListener('input', () => {
-            this.status.textContent = '尚未保存…';
-            if (this.timer) clearTimeout(this.timer);
-            this.timer = setTimeout(() => { void this.flush(); }, 650);
+            this.status.textContent = t('尚未保存…');
+            this.timers.clear(this.timer);
+            this.timer = this.timers.set(() => { void this.flush(); }, 650);
         }, { signal: this.abort.signal });
         this.textarea.addEventListener('blur', () => { void this.flush(); }, { signal: this.abort.signal });
         surface.addEventListener('dblclick', event => {
@@ -90,15 +94,16 @@ export class DocxWritingController {
     focusBody(): void { this.textarea.focus(); }
     private loadBody(): void {
         const node = this.model.nodes.find(item => item.id === this.selected) ?? this.model.nodes[0];
+        if (!node) return;
         this.selected = node.id;
         const body = this.source.body(node.id);
         this.heading.textContent = node.title;
         this.textarea.value = body.text; this.textarea.readOnly = !body.editable;
         this.saved = body.text;
-        this.status.textContent = body.editable ? '仅当前章节直属纯文本正文' : '此章节含复杂内容，正文只读';
+        this.status.textContent = body.editable ? t('仅当前章节直属纯文本正文') : t('此章节含复杂内容，正文只读');
     }
     async flush(): Promise<boolean> {
-        if (this.timer) clearTimeout(this.timer); this.timer = undefined;
+        this.timers.clear(this.timer); this.timer = undefined;
         if (this.busy || this.textarea.value === this.saved || this.textarea.readOnly) return !this.busy;
         this.busy = true; this.textarea.readOnly = true;
         try {
@@ -106,9 +111,9 @@ export class DocxWritingController {
             const model = await this.source.execute({ type: 'body', id: this.selected, text: this.textarea.value });
             this.undoStack.push(before); this.redoStack = [];
             this.saved = this.textarea.value; this.publish(model, this.selected);
-            this.status.textContent = '已保存'; return true;
+            this.status.textContent = t('已保存'); return true;
         } catch (error) {
-            this.status.textContent = `草稿已保留：${error instanceof Error ? error.message : String(error)}`;
+            this.status.textContent = t('草稿已保留：{message}', { message: error instanceof Error ? error.message : String(error) });
             return false;
         } finally { this.busy = false; this.textarea.readOnly = !this.source.body(this.selected).editable; }
     }
@@ -151,35 +156,36 @@ export class DocxWritingController {
         input.value = initial;
         const save = async () => { if (!input.value.trim()) return; input.disabled = true; await submit(input.value.trim()); modal.close(); };
         input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); void save(); } };
-        const button = modal.contentEl.createEl('button', { text: '保存' }); button.onclick = () => { void save(); };
+        const button = modal.contentEl.createEl('button', { text: t('保存') }); button.onclick = () => { void save(); };
         modal.open(); input.focus(); input.select();
     }
     async rename(id = this.selected): Promise<void> {
         const node = this.model.nodes.find(item => item.id === id); if (!node || id === 'document') return;
-        this.textDialog('重命名章节', node.title, value => this.execute({ type: 'rename', id, title: value }));
+        this.textDialog(t('重命名章节'), node.title, value => this.execute({ type: 'rename', id, title: value }));
     }
     async insert(id = this.selected, place: 'before' | 'after' | 'child' = 'child'): Promise<void> {
         if (id === 'document' && place !== 'child') place = 'child';
-        this.textDialog('添加章节', '', value => this.execute({ type: 'insert', id, place, title: value }));
+        this.textDialog(t('添加章节'), '', value => this.execute({ type: 'insert', id, place, title: value }));
     }
     async remove(id = this.selected): Promise<void> {
         if (id === 'document') return;
         const node = this.model.nodes.find(item => item.id === id); if (!node) return;
-        const modal = new Modal(this.app); modal.setTitle(`删除「${node.title}」`);
-        modal.contentEl.createEl('p', { text: '删除整节会同时删除其正文和子章节。' });
-        modal.contentEl.createEl('button', { text: '删除整节' }).onclick = () => { modal.close(); void this.execute({ type: 'delete', id }); };
-        modal.contentEl.createEl('button', { text: '只删除标题，提升子章节' }).onclick = () => {
+        const modal = new Modal(this.app); modal.setTitle(t('删除「{title}」', { title: node.title }));
+        modal.contentEl.createEl('p', { text: t('删除整节会同时删除其正文和子章节。') });
+        modal.contentEl.createEl('button', { text: t('删除整节') }).onclick = () => { modal.close(); void this.execute({ type: 'delete', id }); };
+        modal.contentEl.createEl('button', { text: t('只删除标题，提升子章节') }).onclick = () => {
             modal.close(); void this.execute({ type: 'delete', id, promoteChildren: true });
         };
         modal.open();
     }
     private move(id: string): void {
-        const modal = new Modal(this.app); modal.setTitle('移动章节');
-        const target = modal.contentEl.createEl('select', { attr: { 'aria-label': '目标章节' } });
+        const modal = new Modal(this.app); modal.setTitle(t('移动章节'));
+        const target = modal.contentEl.createEl('select', { attr: { 'aria-label': t('目标章节') } });
         for (const node of this.model.nodes) if (node.id !== id) target.createEl('option', { text: node.title, value: node.id });
-        const place = modal.contentEl.createEl('select', { attr: { 'aria-label': '放置位置' } });
-        for (const value of ['before', 'after', 'child'] as const) place.createEl('option', { text: value, value });
-        modal.contentEl.createEl('button', { text: '移动' }).onclick = () => {
+        const place = modal.contentEl.createEl('select', { attr: { 'aria-label': t('放置位置') } });
+        for (const [value, label] of [['before', t('之前')], ['after', t('之后')], ['child', t('作为子章节')]] as const)
+            place.createEl('option', { text: label, value });
+        modal.contentEl.createEl('button', { text: t('移动') }).onclick = () => {
             modal.close(); void this.execute({ type: 'move', id, target: target.value, place: place.value as 'before' | 'after' | 'child' });
         };
         modal.open();
@@ -187,17 +193,17 @@ export class DocxWritingController {
     menu(id: string, event: MouseEvent): void {
         const menu = new Menu();
         const item = (title: string, action: () => unknown) => menu.addItem(entry => entry.setTitle(title).onClick(() => { void action(); }));
-        item('阅读／编辑直属正文', async () => { await this.select(id); this.focusBody(); });
-        if (id !== 'document') item('重命名', () => this.rename(id));
-        item('添加子章节', () => this.insert(id, 'child'));
+        item(t('阅读／编辑直属正文'), async () => { await this.select(id); this.focusBody(); });
+        if (id !== 'document') item(t('重命名'), () => this.rename(id));
+        item(t('添加子章节'), () => this.insert(id, 'child'));
         if (id !== 'document') {
-            item('在前面添加章节', () => this.insert(id, 'before'));
-            item('在后面添加章节', () => this.insert(id, 'after'));
+            item(t('在前面添加章节'), () => this.insert(id, 'before'));
+            item(t('在后面添加章节'), () => this.insert(id, 'after'));
             menu.addSeparator();
-            item('提升章节', () => this.execute({ type: 'level', id, delta: -1 }));
-            item('降低章节', () => this.execute({ type: 'level', id, delta: 1 }));
-            item('移动章节…', () => this.move(id));
-            item('删除章节…', () => this.remove(id));
+            item(t('提升章节'), () => this.execute({ type: 'level', id, delta: -1 }));
+            item(t('降低章节'), () => this.execute({ type: 'level', id, delta: 1 }));
+            item(t('移动章节…'), () => this.move(id));
+            item(t('删除章节…'), () => this.remove(id));
         }
         menu.showAtMouseEvent(event);
     }

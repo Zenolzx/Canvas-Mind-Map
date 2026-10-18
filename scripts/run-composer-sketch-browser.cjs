@@ -1,9 +1,19 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { chromium } = require(process.env.CMM_PLAYWRIGHT || 'C:/Users/Lenovo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const { launchOptions, requireTooling } = require('./lib/browser.cjs');
+const { expectScreenshot } = require('./lib/visual.cjs');
+
+/**
+ * The Sketch captures follow drag gestures whose pointer coordinates are derived from live
+ * boundingBox() calls, so the drawn geometry carries a little platform-dependent jitter that
+ * cannot be removed without rewriting the gesture into fixed coordinates. Measured spread is
+ * ~1.7%, so these two use a wider band; everything else keeps the tight default.
+ */
+const SKETCH_TOLERANCE = 0.03;
+const { chromium } = requireTooling('Composer sketch browser');
 (async () => {
- const browser = await chromium.launch({ headless: true, executablePath: process.env.CMM_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' });
+ const browser = await chromium.launch(launchOptions());
  try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } }), errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -41,13 +51,27 @@ const { chromium } = require(process.env.CMM_PLAYWRIGHT || 'C:/Users/Lenovo/.cac
   await page.mouse.move(rect.x + 100, rect.y + 350); await page.mouse.down(); await page.mouse.move(rect.x + 200, rect.y + 380); await page.mouse.up();
   assert.equal((await state()).sketch.annotations.length, 1);
   assert.equal(await page.getByRole('button', { name: 'Select', exact: true }).getAttribute('aria-pressed'), 'true');
-  await page.screenshot({ path: 'tmp/composer-browser/sketch.png' });
-  await page.evaluate(() => document.body.classList.add('theme-dark'));
+  await page.mouse.move(4, 4);await page.waitForTimeout(60);
+  const sketchShot = await page.screenshot({ path: 'tmp/composer-browser/sketch.png' });
+  expectScreenshot('composer-sketch', sketchShot, { maxDiff: SKETCH_TOLERANCE });
+  await page.evaluate(() => {
+    // The Sketch surface derives from the theme, so dark mode means dark theme variables.
+    document.body.classList.add('theme-dark');
+    document.body.style.setProperty('--background-primary', '#1e1e1e');
+    document.body.style.setProperty('--background-primary-alt', '#262626');
+    document.body.style.setProperty('--text-normal', '#dadada');
+  });
   await page.setViewportSize({ width: 800, height: 700 });
   assert.equal(await page.locator('.cmm-composer-sketch-tools').isVisible(), true);
-  assert.equal(await page.locator('.cmm-composer-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(41, 42, 41)');
+  // The stage must follow the theme instead of staying a hardcoded light paper.
+  assert.equal(await page.locator('.cmm-composer-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(30, 30, 30)');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.evaluate(() => document.body.classList.remove('theme-dark'));
+  await page.evaluate(() => {
+    document.body.classList.remove('theme-dark');
+    document.body.style.removeProperty('--background-primary');
+    document.body.style.removeProperty('--background-primary-alt');
+    document.body.style.removeProperty('--text-normal');
+  });
   await page.waitForTimeout(650);
   const id = (await state()).draftId;
   await page.evaluate(async id => { const view = window.composerTest.view; await view.setState({ draftId: id }, { history: false }); }, id);
@@ -151,6 +175,7 @@ const { chromium } = require(process.env.CMM_PLAYWRIGHT || 'C:/Users/Lenovo/.cac
   await regression.mouse.down(); await regression.mouse.move(handleBox.x + handleBox.width / 2 + 32, handleBox.y + handleBox.height / 2 + 8, { steps: 4 }); await regression.mouse.up();
   assert.ok(await regression.evaluate(id => window.composerTest.view.draft.sketch.annotations.find(a => a.id === id).end.x, selectedCircleId) > oldEnd + 20, 'dragging a handle resizes the mark');
   await regression.screenshot({ path: 'tmp/composer-browser/sketch-annotations.png' });
+  expectScreenshot('composer-sketch-annotations', await regression.screenshot(), { maxDiff: SKETCH_TOLERANCE });
   await regression.waitForTimeout(650);
   const persistedId = await regression.evaluate(() => window.composerTest.view.draft.draftId);
   await regression.evaluate(async id => { await window.composerTest.view.setState({ draftId: id }, { history: false }); }, persistedId);

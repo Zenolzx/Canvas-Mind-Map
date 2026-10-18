@@ -17,29 +17,34 @@ export function parseHeadings(text: string): HeadingSection[] {
     let yaml = lines[0]?.trim() === '---' && lines.slice(1).some(line => /^(---|\.\.\.)\s*$/.test(line));
     let previousText = false;
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
+        // Array access is checked under noUncheckedIndexedAccess; an absent line is empty.
+        const line = lines[i] ?? '';
         if (yaml) {
             if (i > 0 && /^(---|\.\.\.)\s*$/.test(line)) yaml = false;
             continue;
         }
-        const code = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        const code = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        const marker = code?.[1], trailing = code?.[2] ?? '';
         if (fence) {
-            if (code && code[1][0] === fence && code[1].length >= fenceLength && !code[2].trim()) fence = '';
+            if (marker && marker[0] === fence && marker.length >= fenceLength && !trailing.trim()) fence = '';
             previousText = false;
             continue;
         }
-        if (code && (code[1][0] !== '`' || !code[2].includes('`'))) {
-            fence = code[1][0]; fenceLength = code[1].length;
+        if (marker && (marker[0] !== '`' || !trailing.includes('`'))) {
+            fence = marker[0]!; fenceLength = marker.length;
             previousText = false;
             continue;
         }
-        const atx = line.match(/^ {0,3}(#{1,6})(?:[\t ]+(.*?)|[\t ]*)$/);
+        const atx = /^ {0,3}(#{1,6})(?:[\t ]+(.*?)|[\t ]*)$/.exec(line);
         if (atx) {
-            starts.push({ line: i, level: atx[1].length,
+            starts.push({ line: i, level: atx[1]?.length ?? 0,
                 title: (atx[2] ?? '').replace(/[\t ]+#+[\t ]*$/, '').trim() });
             previousText = false;
         } else if (previousText && /^ {0,3}(=+|-+)\s*$/.test(line)) {
-            starts.push({ line: i - 1, level: line.trim()[0] === '=' ? 1 : 2, title: lines[i - 1].trim() });
+            const level = line.trim().startsWith('=') ? 1 : 2;
+            const title = lines[i - 1];
+            // A Setext heading always has the paragraph line above it, but guard regardless.
+            if (title !== undefined) starts.push({ line: i - 1, level, title: title.trim() });
             previousText = false;
         } else {
             previousText = !!line.trim() && !/^( {4}|\t| {0,3}[>\-*+]| {0,3}\d+[.)]\s)/.test(line);
@@ -48,14 +53,19 @@ export function parseHeadings(text: string): HeadingSection[] {
     const result: HeadingSection[] = [], stack: number[] = [];
     const occurrences = new Map<string, number>();
     starts.forEach((heading, index) => {
-        while (stack.length && result[stack[stack.length - 1]].level >= heading.level) stack.pop();
-        const parent = stack.length ? stack[stack.length - 1] : -1;
-        const path = `${parent < 0 ? '' : result[parent].key}/${encodeURIComponent(heading.title)}`;
+        while (stack.length) {
+            const top = stack[stack.length - 1]!;
+            if ((result[top]?.level ?? 0) < heading.level) break;
+            stack.pop();
+        }
+        const parent = stack.length ? stack[stack.length - 1]! : -1;
+        const parentSection = parent < 0 ? undefined : result[parent];
+        const path = `${parentSection ? parentSection.key : ''}/${encodeURIComponent(heading.title)}`;
         const count = (occurrences.get(path) ?? 0) + 1;
         occurrences.set(path, count);
         result.push({ line: heading.line, endLine: starts[index + 1]?.line ?? lines.length, level: heading.level, title: heading.title,
             content: lines.slice(heading.line, starts[index + 1]?.line ?? lines.length).join('\n').trimEnd(),
-            key: `${path}:${count}`, parent, depth: parent < 0 ? 1 : result[parent].depth + 1 });
+            key: `${path}:${count}`, parent, depth: parentSection ? parentSection.depth + 1 : 1 });
         stack.push(index);
     });
     return result;

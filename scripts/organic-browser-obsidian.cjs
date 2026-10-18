@@ -5,6 +5,16 @@ exports.ItemView = class {
     async setState() {}
 };
 exports.Scope = class { register() {} };
+// Test boundary only: Obsidian detects the host here. Suites run the desktop path by default;
+// a fixture can set `window.CMM_TEST_MOBILE = true` before load to exercise the touch branches.
+// `process` is deliberately not read: this stub also runs inside the browser bundle.
+const testMobile = () => typeof window !== 'undefined' && window.CMM_TEST_MOBILE === true;
+exports.Platform = {
+    get isMobile() { return testMobile(); },
+    get isDesktop() { return !testMobile(); },
+    get isPhone() { return false; },
+    get isTablet() { return testMobile(); },
+};
 exports.Notice = class { constructor(text) { console.log('Notice:', text); } };
 exports.TFile = class { constructor(path) { this.path = path; this.extension = 'md'; } get basename() { return this.path.split('/').pop().slice(0,-3); } };
 exports.Menu = class { addItem(build) { const item = {setTitle(){return this;},onClick(){return this;}};build(item);return this;} showAtMouseEvent(){} showAtPosition(){} };
@@ -16,6 +26,15 @@ exports.Modal = class {
 };
 exports.MarkdownView = class {};
 exports.editorInfoField = require('@codemirror/state').StateField.define({create: () => ({}), update: value => value});
+
+// Test boundary only: production calls Obsidian's Lucide icon renderer. Emitting a real
+// element keeps icon-bearing buttons structurally identical to the shipped UI.
+exports.setIcon = function (element, icon) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.classList.add('svg-icon', 'lucide-' + icon);
+    svg.setAttribute('data-icon', icon);
+    element.append(svg);
+};
 
 // Test boundary only: production always calls Obsidian's MarkdownRenderer.
 exports.Component = class { load() {} unload() {} };

@@ -1,4 +1,5 @@
 import { clone, ComposerDraft, ComposerNode, entries, moveNodes, newDraft, newNode, projectDraft, selectedRoots, siblingsOf } from './ComposerModel';
+import type { MindMapModel } from '../core/MindMapModel';
 import { ct } from '../i18n';
 
 export const COMPOSER_TEMPLATES: Record<string, { title: string; sections: string[] }> = {
@@ -23,12 +24,15 @@ export function duplicateDraft(source: ComposerDraft): ComposerDraft {
     draft.focusNode = ids.get(draft.focusNode ?? '') ?? null; draft.root.title += ct(' (copy)'); return draft;
 }
 export function organizeSelection(draft: ComposerDraft, ids: string[], action: 'promote' | 'demote' | 'up' | 'down'): void {
-    const roots = selectedRoots(draft, ids); if (!roots.length) return;
-    const siblings = siblingsOf(draft, roots[0].node.id);
+    const roots = selectedRoots(draft, ids);
+    // Guarded above, so the endpoints exist; the checks keep the invariant local.
+    const head = roots[0], tail = roots[roots.length - 1];
+    if (!head || !tail) return;
+    const siblings = siblingsOf(draft, head.node.id);
     if (roots.some(e => siblingsOf(draft, e.node.id) !== siblings)) throw new Error('Select sibling nodes for this operation.');
-    const first = siblings.indexOf(roots[0].node), last = siblings.indexOf(roots[roots.length - 1].node);
+    const first = siblings.indexOf(head.node), last = siblings.indexOf(tail.node);
     if (last - first + 1 !== roots.length) throw new Error('Select consecutive siblings for this operation.');
-    const target = action === 'promote' ? roots[0].parent : action === 'down' ? siblings[last + 1] : siblings[first - 1];
+    const target = action === 'promote' ? head.parent : action === 'down' ? siblings[last + 1] : siblings[first - 1];
     if (!target) throw new Error('There is no destination in that direction.');
     moveNodes(draft, roots.map(e => e.node.id), target.id, action === 'demote' ? 'child' : action === 'up' ? 'before' : 'after');
 }
@@ -52,19 +56,22 @@ export function searchDraft(draft: ComposerDraft, query: string, scope: SearchSc
 }
 /** Focus/search only project visibility. Saved fold flags are never modified. */
 export function composerProjection(draft: ComposerDraft, searchTarget?: string) {
-    const model = projectDraft(draft), all = entries(draft), byId = new Map(all.map(e => [e.node.id, e]));
+    const reference = projectDraft(draft), all = entries(draft), byId = new Map(all.map(e => [e.node.id, e]));
     const collapsed = new Set(all.filter(e => e.node.collapsed).map(e => e.node.id));
     const ancestors = (id: string) => { const result: string[] = []; let e = byId.get(id); while (e) { result.push(e.node.id); e = e.parent ? byId.get(e.parent.id) : undefined; } return result; };
     const focus = draft.focusNode;
+    // Focus only narrows what is visible; layout weights must keep seeing the whole tree, or
+    // entering and leaving focus mode would reassign branch sides.
+    const model: MindMapModel = { ...reference };
     if (focus && byId.has(focus) && !searchTarget) {
         const visible = new Set(ancestors(focus));
         const visit = (node: ComposerNode) => { visible.add(node.id); node.children.forEach(visit); };
         visit(byId.get(focus)!.node);
-        model.nodes = model.nodes.filter(n => visible.has(n.id)).map(n => ({ ...n, children: n.children.filter(id => visible.has(id)) }));
+        model.nodes = reference.nodes.filter(n => visible.has(n.id)).map(n => ({ ...n, children: n.children.filter(id => visible.has(id)) }));
         for (const id of ancestors(focus)) if (id !== focus) collapsed.delete(id);
     }
     if (searchTarget) for (const id of ancestors(searchTarget)) collapsed.delete(id);
-    return { model, collapsed };
+    return { model, collapsed, reference };
 }
 export function draftStatistics(draft: ComposerDraft) {
     const all = entries(draft, true).filter(e => e.node !== draft.root), text = entries(draft, true).map(e => `${e.node.title}\n${e.node.body}`).join('\n');

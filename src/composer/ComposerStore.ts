@@ -1,4 +1,5 @@
 import { clone, ComposerDraft, newDraft, normalizeDraft } from './ComposerModel';
+import { windowTimers } from '../design/timers';
 
 /** Shares the plugin's ordered writer with Organic and settings. Failed drafts stay in memory. */
 export class ComposerStore {
@@ -9,8 +10,14 @@ export class ComposerStore {
     private timer?: ReturnType<typeof setTimeout>;
     private revision = 0;
     private listeners = new Set<(status: string) => void>();
-    status = 'Draft saved';
-    constructor(saved: unknown, private save: () => Promise<void>, preferences?: unknown) {
+    /** Nothing has been written yet, so the store must not claim a save. */
+    status = 'Draft not saved yet';
+    private failures = 0;
+    /** Resolved lazily so the debounce follows the window the document lives in. */
+    private timers: ReturnType<typeof windowTimers>;
+    constructor(saved: unknown, private save: () => Promise<void>, preferences?: unknown,
+        private onFailure?: (error: unknown) => void, private host?: () => Window | undefined) {
+        this.timers = windowTimers(() => this.host?.());
         if (preferences && typeof preferences === 'object') {
             const p = preferences as typeof this.preferences;
             if (['organic-horizontal', 'organic-radial', 'compact-organic'].includes(p.layout)) this.preferences.layout = p.layout;
@@ -40,12 +47,22 @@ export class ComposerStore {
     put(draft: ComposerDraft): void {
         this.preferences = { layout: draft.layout, panelWidth: draft.panelWidth };
         this.data[draft.draftId] = clone(draft); this.revision++; this.report('Saving draft…');
-        clearTimeout(this.timer); this.timer = setTimeout(() => { void this.flush().catch(() => {}); }, 500);
+        this.timers.clear(this.timer);
+        this.timer = this.timers.set(() => { void this.flush().catch(() => { /* reported once via onFailure */ }); }, 500);
     }
     async flush(): Promise<void> {
-        clearTimeout(this.timer); this.timer = undefined; const revision = this.revision;
-        try { await this.save(); if (revision === this.revision) this.report('Draft saved'); }
-        catch (error) { this.report('Draft not saved — retry or copy recovery data'); throw error; }
+        this.timers.clear(this.timer); this.timer = undefined; const revision = this.revision;
+        try {
+            await this.save();
+            if (revision === this.revision) { this.failures = 0; this.report('Draft saved'); }
+        } catch (error) {
+            // A debounced autosave has no caller to rethrow to, so a failure is reported once
+            // through the callback rather than being swallowed.
+            this.failures++;
+            this.report('Draft not saved — retry or copy recovery data');
+            if (this.failures === 1) this.onFailure?.(error);
+            throw error;
+        }
     }
     async remove(id: string): Promise<void> {
         const draft = this.data[id]; delete this.data[id];

@@ -10,7 +10,7 @@ export function projectDocumentMindMap(doc: DocumentStructure, title: string): M
         let low = 0, high = lineStarts.length;
         while (low + 1 < high) {
             const middle = (low + high) >>> 1;
-            if (lineStarts[middle] <= offset) low = middle; else high = middle;
+            if ((lineStarts[middle] ?? Number.POSITIVE_INFINITY) <= offset) low = middle; else high = middle;
         }
         return low;
     };

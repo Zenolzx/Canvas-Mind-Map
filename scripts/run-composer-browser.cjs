@@ -1,7 +1,9 @@
 const assert=require('node:assert/strict'),path=require('node:path'),{pathToFileURL}=require('node:url');
-const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {launchOptions,requireTooling}=require('./lib/browser.cjs');
+const {expectScreenshot}=require('./lib/visual.cjs');
+const {chromium}=requireTooling('Composer browser');
 (async()=>{
- const browser=await chromium.launch({headless:true,executablePath:process.env.CMM_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+ const browser=await chromium.launch(launchOptions());
  try{
   const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(pathToFileURL(path.resolve('tmp/composer-browser/index.html')).href);await page.waitForFunction(()=>window.ready);
@@ -62,22 +64,31 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.evaluate(()=>{const v=window.composerTest.view;v.render();v.fit();});
   const cycleStart=await point('Process'),cycleEnd=await point('Paging');await page.mouse.move(cycleStart.x,cycleStart.y);await page.mouse.down();await page.mouse.move(cycleEnd.x,cycleEnd.y,{steps:10});assert.match(await page.locator('.cmm-composer-drop').textContent(),/itself/);await page.mouse.up();
   await page.waitForTimeout(600);assert.equal(await page.evaluate(()=>Object.values(window.composerTest.getDisk())[0].root.children[0].children[0].children[0].body),'Paging body.\n\n- Page table');
-  for (const [preset, asset] of [
-   ['ink', 'ink-landscape.webp'], ['cinnabar', 'cinnabar-landscape.webp'],
-   ['breeze', 'mint-leaves.webp'], ['violet', 'sakura-lake.webp'], ['white', null],
+  // Five palettes x the three materials that paint something. `none` is the flat baseline and is
+  // covered by composer-base below, so it is not captured again here.
+  for (const [preset, material] of [
+   ['ink', 'dots'], ['cinnabar', 'dots'], ['breeze', 'dots'], ['violet', 'dots'], ['obsidian', 'dots'],
+   ['ink', 'grid'], ['ink', 'paper'], ['cinnabar', 'grid'],
   ]) {
-   await page.evaluate(({preset, asset}) => {
+   await page.evaluate(({preset, material}) => {
     const view = window.composerTest.view;
-    const root = document.querySelector('.cmm-composer');
-    root.dataset.cmmAppearance = preset;
-    if (asset) root.style.setProperty('--cmm-art', `url("assets/${asset}")`);
-    else root.style.removeProperty('--cmm-art');
+    // Production-equivalent switch: palette and material are independent attributes.
+    window.composerTest.applyPreset(preset, material);
     view.drawerOpen = true; view.renderDrawer();
     view.draft.panel = 'show'; view.render(); view.fit();
-   }, {preset, asset});
-   await page.screenshot({path:`tmp/composer-browser/wallpaper-${preset}.png`});
+    window.composerTest.freezeParallax();
+   }, {preset, material});
+   // One capture, used for both the artifact and the assertion: taking two screenshots let a
+   // repaint happen in between and made the recorded baseline disagree with the saved image.
+   await page.mouse.move(4, 4);
+   await page.waitForTimeout(60);
+   const shot = await page.screenshot({path:`tmp/composer-browser/surface-${preset}-${material}.png`});
+   expectScreenshot(`composer-surface-${preset}-${material}`, shot);
   }
-  await page.screenshot({path:'tmp/composer-browser/composer.png'});
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(60);
+  const base = await page.screenshot({path:'tmp/composer-browser/composer.png'});
+  expectScreenshot('composer-base', base);
   await page.getByRole('button',{name:'Create Note',exact:true}).click();
   const folderSelect=page.getByRole('combobox',{name:'Location (existing vault folder)'});
   assert.equal(await folderSelect.inputValue(),'Projects');

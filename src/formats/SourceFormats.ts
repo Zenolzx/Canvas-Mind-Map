@@ -59,9 +59,10 @@ export function parseDocx(data: ArrayBuffer, path: string, title: string): DocxP
         for (const style of descendants(stylesXml, 'style')) {
             const id = attr(style, 'styleId'); if (!id) continue;
             const outline = descendants(style, 'outlineLvl')[0];
-            const explicit = outline && Number(attr(outline, 'val'));
+            // outlineLvl is zero-based, so 0 is a valid level and must not be treated as absent.
+            const explicit = outline ? Number(attr(outline, 'val')) : undefined;
             const heading = /^(?:Heading|heading)([1-6])$/.exec(id);
-            if (outline && Number.isInteger(explicit) && explicit >= 0 && explicit <= 5) styles.set(id, explicit + 1);
+            if (explicit !== undefined && Number.isInteger(explicit) && explicit >= 0 && explicit <= 5) styles.set(id, explicit + 1);
             else if (heading) styles.set(id, Number(heading[1]));
         }
     }
@@ -70,13 +71,13 @@ export function parseDocx(data: ArrayBuffer, path: string, title: string): DocxP
         if (child.nodeType !== 1 || (child as Element).localName === 'sectPr') continue;
         const element = child as Element, index = blocks.length, text = paraText(element);
         const pPr = nodeList(element, 'pPr')[0];
-        const level = pPr && descendants(pPr, 'outlineLvl')[0];
-        const explicit = level && Number(attr(level, 'val'));
-        const style = pPr && descendants(pPr, 'pStyle')[0];
+        const level = pPr ? descendants(pPr, 'outlineLvl')[0] : undefined;
+        const explicit = level ? Number(attr(level, 'val')) : undefined;
+        const style = pPr ? descendants(pPr, 'pStyle')[0] : undefined;
         const styleId = attr(style, 'val');
         const headingStyle = /^(?:Heading|heading)([1-6])$/.exec(styleId ?? '');
         const headingLevel = element.localName === 'p' && text.trim()
-            ? level && Number.isInteger(explicit) && explicit >= 0 && explicit <= 5 ? explicit + 1 :
+            ? explicit !== undefined && Number.isInteger(explicit) && explicit >= 0 && explicit <= 5 ? explicit + 1 :
                 styles.get(styleId ?? '') ?? (headingStyle ? Number(headingStyle[1]) : 0) : 0;
         const complex = element.localName !== 'p' || descendants(element, 'drawing').length > 0 ||
             descendants(element, 'object').length > 0 || descendants(element, 'fldChar').length > 0 ||
@@ -90,8 +91,10 @@ export function parseDocx(data: ArrayBuffer, path: string, title: string): DocxP
     const headings = blocks.filter(block => block.headingLevel);
     for (let i = 0; i < headings.length; i++) {
         const block = headings[i];
-        while (stack.length > 1 && stack[stack.length - 1].headingLevel >= block.headingLevel) stack.pop();
-        const parent = stack[stack.length - 1];
+        if (!block) continue;
+        while (stack.length > 1 && (stack[stack.length - 1]?.headingLevel ?? 0) >= block.headingLevel) stack.pop();
+        // The stack always retains the document root, so this fallback cannot normally trigger.
+        const parent = stack[stack.length - 1] ?? root;
         const end = headings[i + 1]?.index ?? blocks.length;
         const content = blocks.slice(block.index + 1, end).map(item => item.text).filter(Boolean).join('\n');
         const node: MindMapNode = { id: `docx:${block.index}`, key: `docx:${block.index}`, title: block.title,
@@ -136,7 +139,9 @@ async function parsePdf(data: ArrayBuffer, path: string, title: string): Promise
         };
         if (outline?.length) await visit(outline, root, 1, '');
         for (let index = 1; index < nodes.length; index++) {
-            const node = nodes[index], start = Math.max(1, node.source.line);
+            const node = nodes[index];
+            if (!node) continue;
+            const start = Math.max(1, node.source.line);
             const nextPage = nodes[index + 1]?.source.line ?? pdf.numPages + 1;
             const end = Math.max(start, nextPage - 1);
             node.source.endLine = end;

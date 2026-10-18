@@ -19,7 +19,7 @@ export class StructureValidator {
         for (const id of doc.order) {
             const s = doc.sections.get(id)!;
             const positions = [s.heading.start, s.title.start, s.title.end, s.heading.end, s.body.end, s.subtree.end];
-            if (positions.some((p, i) => !Number.isInteger(p) || p < 0 || p > doc.text.length || (i > 0 && p < positions[i - 1])) ||
+            if (positions.some((p, i) => !Number.isInteger(p) || p < 0 || p > doc.text.length || (i > 0 && p < (positions[i - 1] ?? 0))) ||
                 s.heading.start !== previousEnd || s.body.start !== s.heading.end || s.subtree.start !== s.heading.start ||
                 s.headingLevel < 1 || s.headingLevel > 6)
                 throw new StructureError('invalid-document', 'Invalid or overlapping section ranges.');

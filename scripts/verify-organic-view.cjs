@@ -14,7 +14,8 @@ class Element {
 class Component { load() {} unload() { this.unloaded = true; } }
 
 class ItemView { constructor(leaf) { this.app = leaf.app; this.contentEl = { empty() {} }; } }
-const obsidian = { Component, MarkdownRenderer: { render: async (app, text, el, path, component) => rendered.push({ text, el, path, component }) }, ItemView, Notice: class { constructor(message) { notices.push(message); } } };
+const obsidian = { Component, MarkdownRenderer: { render: async (app, text, el, path, component) => rendered.push({ text, el, path, component }) }, ItemView, Notice: class { constructor(message) { notices.push(message); } },
+    Platform: { isMobile: false, isDesktop: true, isPhone: false, isTablet: false } };
 const output = esbuild.buildSync({ entryPoints: ['src/organic/OrganicMindMapView.ts'], bundle: true,
     platform: 'node', format: 'cjs', external: ['obsidian'], write: false });
 const sandbox = { module: { exports: {} }, exports: {}, console, require: name => name === 'obsidian' ? obsidian : require(name) };
@@ -29,7 +30,9 @@ const { OrganicMindMapView } = sandbox.module.exports;
         getLeaf: () => { const leaf = { openFile: async (file, state) => opened.push({ file, state }) }; leaves.push(leaf); return leaf; },
         requestSaveLayout() {}, getLeavesOfType: () => leaves,
     } };
-    const view = new OrganicMindMapView({ app });
+    // The undecorated presets (obsidian/white) intentionally skip parallax, so assert the
+    // parallax contract against a decorated preset, which is where it applies.
+    const view = new OrganicMindMapView({ app }, undefined, undefined, undefined, () => 'ink');
     const paper = new Map();
     view.svg = { clientWidth: 1000, clientHeight: 700, style: { setProperty: (key, value) => paper.set(key, value) } };
     view.scene = { setAttribute() {}, querySelectorAll: () => [] };
@@ -48,7 +51,10 @@ const { OrganicMindMapView } = sandbox.module.exports;
     actions.toggle(rootId); assert.ok(view.result.nodes.some(n => n.title === 'Deep'), 'descendant expansion survives parent folding');
     const point = [(123 - view.offset.x) / view.scale, (234 - view.offset.y) / view.scale];
     view.zoom(1.3, 123, 234);
-    assert.ok(paper.has('--cmm-parallax-x'), 'decorated paper follows the viewport');
+    // The surface carries no backdrop offset any more: the texture belongs to the view container
+    // and must stay still while the map pans, so a sliding grid cannot read as a render fault.
+    assert.ok(!paper.has('--cmm-parallax-x') && !paper.has('--cmm-parallax-y'),
+        'the map surface must not receive a parallax offset');
     assert.ok(Math.abs(point[0] * view.scale + view.offset.x - 123) < 1e-8);
     assert.ok(Math.abs(point[1] * view.scale + view.offset.y - 234) < 1e-8);
     const repeat = view.model.nodes.filter(n => n.title === 'Repeat')[1];

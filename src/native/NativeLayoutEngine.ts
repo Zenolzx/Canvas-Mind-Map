@@ -49,8 +49,9 @@ export function layoutNative(nodes: NativeLayoutNode[], options: NativeLayoutOpt
         let side = ['left', 'up'].includes(options.layout) ? -1 : 1;
         if (dual) {
             side = b.placed ? ((vertical ? center(b).y - center(root).y : center(b).x - center(root).x) >= 0 ? 1 : -1)
-                : totals[0] <= totals[1] ? 1 : -1;
-            totals[side === 1 ? 0 : 1] += fullWeight(b);
+                : (totals[0] ?? 0) <= (totals[1] ?? 0) ? 1 : -1;
+            const bucket = side === 1 ? 0 : 1;
+            totals[bucket] = (totals[bucket] ?? 0) + fullWeight(b);
         }
         directions.set(b.id, options.layout === 'radial' ? (b.placed
             ? Math.atan2(center(b).y - center(root).y, center(b).x - center(root).x) : b.angle)
@@ -110,9 +111,10 @@ export function layoutNative(nodes: NativeLayoutNode[], options: NativeLayoutOpt
         const intervals: [number, number][] = [];
         for (const p of translated) for (const box of occupied) {
             let lo = -Infinity, hi = Infinity;
-            for (const [start, size, otherStart, otherSize, speed] of [
+            for (const axis of [
                 [p.x, p.width, box.x, box.width, ux], [p.y, p.height, box.y, box.height, uy],
-            ]) {
+            ] as const) {
+                const [start = 0, size = 0, otherStart = 0, otherSize = 0, speed = 0] = axis;
                 const a = otherStart - 28 - start - size, b = otherStart + otherSize + 28 - start;
                 if (Math.abs(speed) < 1e-8) { if (a >= 0 || b <= 0) { hi = -Infinity; break; } }
                 else { lo = Math.max(lo, Math.min(a / speed, b / speed)); hi = Math.min(hi, Math.max(a / speed, b / speed)); }

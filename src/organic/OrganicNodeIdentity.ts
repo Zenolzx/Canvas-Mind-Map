@@ -20,13 +20,14 @@ export function reconcileOrganicModel(model: MindMapModel, previous: OrganicIden
         const old = new Map<string, OrganicIdentity[]>(), next = new Map<string, OrganicIdentity[]>();
         for (const n of previous) if (!used.has(n.id) && allowed(n)) old.set(signature(n), [...(old.get(signature(n)) ?? []), n]);
         for (const n of descriptors) if (!n.id && allowed(n)) next.set(signature(n), [...(next.get(signature(n)) ?? []), n]);
-        for (const [key, nodes] of next) if (nodes.length === 1 && old.get(key)?.length === 1) {
-            nodes[0].id = old.get(key)![0].id; used.add(nodes[0].id);
+        for (const [key, nodes] of next) {
+            const candidate = nodes[0], source = old.get(key)?.[0];
+            if (nodes.length === 1 && candidate && source) { candidate.id = source.id; used.add(candidate.id); }
         }
     };
     const unchangedSections = previous.length === descriptors.length && previous.every((n, i) => {
         const next = descriptors[i];
-        return n.key === next.key && n.title === next.title && n.body === next.body && n.level === next.level;
+        return !!next && n.key === next.key && n.title === next.title && n.body === next.body && n.level === next.level;
     });
     if (identical || unchangedSections) match(n => n.key);
     else {
@@ -46,8 +47,9 @@ export function reconcileOrganicModel(model: MindMapModel, previous: OrganicIden
         for (let depth = 0; depth < 6; depth++) match(n => `${parentIdentity(n)}\u0000${n.title}`, n => !!n.key && !!parentIdentity(n));
     }
     for (const n of descriptors) if (!n.id) n.id = `organic:${Date.now().toString(36)}:${(++sequence).toString(36)}`;
-    const mapping = new Map(model.nodes.map((n, i) => [n.id, descriptors[i].id]));
-    return { identities: descriptors, model: { ...model, rootId: mapping.get(model.rootId)!,
-        nodes: model.nodes.map(n => ({ ...n, id: mapping.get(n.id)!, parentId: n.parentId ? mapping.get(n.parentId) : undefined,
-            children: n.children.map(id => mapping.get(id)!) })) } };
+    const mapping = new Map(model.nodes.map((n, i) => [n.id, descriptors[i]?.id ?? n.id]));
+    const mapped = (id: string) => mapping.get(id) ?? id;
+    return { identities: descriptors, model: { ...model, rootId: mapped(model.rootId),
+        nodes: model.nodes.map(n => ({ ...n, id: mapped(n.id), parentId: n.parentId ? mapping.get(n.parentId) : undefined,
+            children: n.children.map(mapped) })) } };
 }

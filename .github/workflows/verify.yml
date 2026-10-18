@@ -1,0 +1,42 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The browser suites are the only checks that exercise real SVG rendering and export, so
+      # CMM_REQUIRE_BROWSER makes a missing browser a failure here rather than a skip.
+      - name: Install Chromium for the browser suites
+        run: npx playwright install --with-deps chromium
+
+      - name: Type check and lint
+        run: |
+          npx tsc -noEmit -skipLibCheck
+          npm run lint
+
+      - name: Unit checks
+        run: npm run test:unit
+
+      - name: Browser checks
+        run: npm run test:browser
+        env:
+          CMM_REQUIRE_BROWSER: '1'
+
+      - name: Production build
+        run: npm run build

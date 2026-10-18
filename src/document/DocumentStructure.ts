@@ -60,5 +60,6 @@ export function subtreeSections(doc: DocumentStructure, id: SectionId): Document
 }
 
 export function assertEditable(doc: DocumentStructure): void {
-    if (doc.diagnostics.length) throw new StructureError('unsupported-source', doc.diagnostics[0].message);
+    const first = doc.diagnostics[0];
+    if (first) throw new StructureError('unsupported-source', first.message);
 }

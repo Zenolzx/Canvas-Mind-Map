@@ -1,4 +1,6 @@
 import type { MindMapModel, MindMapNode } from '../core/MindMapModel';
+import { pickBranchToken } from '../design/palette';
+import { LINE_HEIGHT, TYPE_SCALE, WEIGHT } from '../design/type';
 import type { OrganicLayoutStyle } from './OrganicViewState';
 
 export interface Point { x: number; y: number }
@@ -27,9 +29,10 @@ export interface OrganicLayoutOptions {
     sectorSpan?: number; childSpan?: number; fontScale?: number;
     padding?: number; branchWidth?: number; branchDecay?: number;
 }
-const PALETTE = ['#218b89', '#d48127', '#a65c80', '#65864a', '#647ec3', '#bc6455', '#8c6bb1', '#548c9d'];
 const DEFAULT_OPTIONS = { siblingGap: 24, baseReach: 145, depthDecay: 0.74, sectorSpan: 2.1,
     childSpan: 0.95, fontScale: 1, padding: 48, branchWidth: 4.2, branchDecay: 0.72 };
+/** Depth-based type ladder, shared with the HTML surfaces through src/design/type.ts. */
+const FONT_SIZES = TYPE_SCALE;
 const STYLE_OPTIONS: Record<OrganicLayoutStyle, Partial<typeof DEFAULT_OPTIONS>> = {
     'organic-radial': {},
     'organic-horizontal': { sectorSpan: 0.5, childSpan: 0.22, baseReach: 130 },
@@ -55,8 +58,8 @@ export class OrganicLayoutEngine {
         };
         weigh(root.id);
         const make = (source: MindMapNode, branch: string, color: string, direction: number, sign: number): OrganicNode => {
-            const fontSize = [30, 21, 17, 15, 14, 13, 12][Math.min(source.depth, 6)] * config.fontScale;
-            const fontWeight = source.depth < 2 ? 650 : source.depth < 4 ? 500 : 400;
+            const fontSize = (FONT_SIZES[Math.min(source.depth, 6)] ?? FONT_SIZES[FONT_SIZES.length - 1]!) * config.fontScale;
+            const fontWeight = source.depth < 2 ? WEIGHT.display : source.depth < 4 ? WEIGHT.strong : WEIGHT.body;
             const maximum = options.maxTextWidth ?? (source.depth === 0 ? 300 : 250);
             const lines: string[] = []; let line = '';
             // Latin words stay intact unless a word alone exceeds the available width.
@@ -74,7 +77,7 @@ export class OrganicLayoutEngine {
             }
             lines.push(line.trimEnd());
             const width = Math.max(32, ...lines.map(text => options.measureText(text, fontSize, fontWeight))) + 24;
-            const height = lines.length * fontSize * 1.4 + (source.depth === 0 ? 28 : 12);
+            const height = lines.length * fontSize * LINE_HEIGHT + (source.depth === 0 ? 28 : 12);
             return { id: source.id, title: source.title, x: sign > 0 ? 0 : -width, y: -height / 2,
                 width, height, depth: source.depth, rootBranchId: branch, color, direction, fontSize, fontWeight,
                 lines, children: source.children.length, collapsed: options.collapsed.has(source.id) };
@@ -96,7 +99,11 @@ export class OrganicLayoutEngine {
             });
         };
         const pack = (children: { tree: Subtree; angle: number }[], parent: OrganicNode, sign: number): OrganicNode[] => {
-            let cursor = -Infinity;
+            // Seed the cursor from the parent's own near edge so the first child clears the parent
+            // card. Starting at -Infinity let a child sit flush against its parent when the
+            // proposed angle happened to place it there, leaving a 0.5px visual gap.
+            const parentEdge = sign > 0 ? parent.y + parent.height : -parent.y;
+            let cursor = parentEdge + config.siblingGap;
             const base = config.baseReach * Math.pow(config.depthDecay, parent.depth);
             const exit = parent.x + (sign > 0 ? parent.width : 0);
             for (const child of children) {
@@ -131,24 +138,27 @@ export class OrganicLayoutEngine {
         const sides = new Map<string, number>(), totals = [0, 0], groups: string[][] = [[], []];
         const branchStyles: Record<string, { color: string; side: number }> = Object.create(null);
         const prior = options.branchStyles ?? previous?.branchStyles ?? {};
-        for (const id of fullRoot.children) if (prior[id]) {
-            sides.set(id, prior[id].side); totals[prior[id].side] += weights.get(id)!;
-            branchStyles[id] = prior[id];
+        for (const id of fullRoot.children) {
+            const saved = prior[id];
+            if (!saved) continue;
+            sides.set(id, saved.side);
+            totals[saved.side] = (totals[saved.side] ?? 0) + (weights.get(id) ?? 0);
+            branchStyles[id] = saved;
         }
-        for (const id of [...fullRoot.children].sort((a, b) => weights.get(b)! - weights.get(a)!)) {
+        for (const id of [...fullRoot.children].sort((a, b) => (weights.get(b) ?? 0) - (weights.get(a) ?? 0))) {
             if (sides.has(id)) continue;
-            const side = totals[0] <= totals[1] ? 0 : 1;
-            sides.set(id, side); totals[side] += weights.get(id)!;
+            const side = (totals[0] ?? 0) <= (totals[1] ?? 0) ? 0 : 1;
+            sides.set(id, side); totals[side] = (totals[side] ?? 0) + (weights.get(id) ?? 0);
             const used = new Set(Object.values(branchStyles).map(s => s.color));
-            branchStyles[id] = { side, color: PALETTE.find(color => !used.has(color)) ?? PALETTE[fullRoot.children.indexOf(id) % PALETTE.length] };
+            branchStyles[id] = { side, color: pickBranchToken(used, fullRoot.children.indexOf(id)) };
         }
-        root.children.forEach(id => groups[sides.get(id)!].push(id));
-        const center = make(root, root.id, '#45423f', 0, 1); center.x = -center.width / 2;
+        root.children.forEach(id => groups[sides.get(id) ?? 0]?.push(id));
+        const center = make(root, root.id, 'var(--cmm-ink, currentColor)', 0, 1); center.x = -center.width / 2;
         const nodes = [center];
         if (!center.collapsed) groups.forEach((ids, side) => {
             const sign = side === 0 ? 1 : -1;
             const children = angles(ids, side === 0 ? 0 : Math.PI, ids.length > 1 ? config.sectorSpan : Math.min(0.8, config.sectorSpan), sign).map(child => ({
-                tree: grow(child.id, child.id, branchStyles[child.id].color, child.direction, child.span, sign),
+                tree: grow(child.id, child.id, branchStyles[child.id]?.color ?? 'var(--cmm-branch, currentColor)', child.direction, child.span, sign),
                 angle: child.direction,
             }));
             nodes.push(...pack(children, center, sign));

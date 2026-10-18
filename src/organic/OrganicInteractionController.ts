@@ -48,7 +48,9 @@ export class OrganicInteractionController {
         const order = this.model.nodes.filter(n => scope.has(n.id) && n.headingLevel > 0);
         if (!order.length) return;
         const index = order.findIndex(n => n.id === this.state.reading.currentNode);
-        const next = order[Math.max(0, Math.min(order.length - 1, index + delta))].id;
+        const target = order[Math.max(0, Math.min(order.length - 1, index + delta))];
+        if (!target) return;
+        const next = target.id;
         this.state.reading.currentNode = next; this.state.selectedNode = next; return next;
     }
     projection(): { model: MindMapModel; collapsed: Set<string> } | undefined {

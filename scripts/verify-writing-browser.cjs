@@ -2,8 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const esbuild = require('esbuild');
 const destination = path.resolve('tmp/writing-browser'); fs.mkdirSync(destination, { recursive: true });
-const artDir = path.join(destination, 'assets'); fs.mkdirSync(artDir, { recursive: true });
-for (const name of ['blue-whale.webp']) fs.copyFileSync(path.resolve('assets', name), path.join(artDir, name));
+// The writing fixture renders the paper tokens only; it needs no wallpaper asset.
 const source = `
 import { OrganicMindMapView } from './src/organic/OrganicMindMapView';
 import { ObsidianDocumentHost } from './src/writing/ObsidianDocumentHost';
@@ -71,7 +70,9 @@ async function run(){
  source+='\\n# Dataset\\n';await w.externalChange();assert(id('Dataset'),'F: external heading refresh');log('PASS F: external refresh');
  const beforeDelete=source;const deleting=w.remove(id('Method'));await until(()=>document.querySelector('.test-modal'));
  assert(source===beforeDelete,'G: opening delete dialog must not write');
- Array.from(document.querySelectorAll('.test-modal button')).find(b=>b.textContent==='取消').click();await deleting;
+ // The dialog is localized, so identify Cancel by position (the dialogs create it first)
+ // rather than by a literal label.
+ Array.from(document.querySelectorAll('.test-modal button'))[0].click();await deleting;
  assert(source===beforeDelete,'G: cancel preserves source');log('PASS G: safe delete confirmation');
  const beforeRename=source;await w.execute({type:'rename',nodeId:id('Training'),title:'Train'});await w.history('undo');assert(source===beforeRename,'H: undo exact text');
  await w.history('redo');assert(id('Train'),'H: redo');log('PASS H: structure undo/redo');

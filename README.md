@@ -213,7 +213,23 @@ The existing features below describe **Native Canvas**. Its title/body content o
 
 Requires **Obsidian 1.7.7 or later**.
 
-In **Settings → Canvas Mind Map → Mind map appearance**, choose one of four reference wallpapers: Mineral ink · Teal, Warm paper · Cinnabar, Mint leaves, or Sakura lake. The original plain white **Default** style remains available. The selection applies to Composer, Organic, and Canvas mind maps. All four wallpapers are bundled into `main.js`, so manual installation still needs only the three files above.
+Appearance has two independent axes. **Style preset** sets the hue; **Surface** sets the structure
+painted under the map. Changing one never changes the other.
+
+**Style preset:**
+
+- **Follow Obsidian theme** (default) — no palette override; the map derives its paper, ink, rule and accent colours from the active theme.
+- **Mineral ink · Teal**, **Warm paper · Cinnabar**, **Mint · Sea glass**, **Sakura · Dusty rose** — four colour palettes, each with its own dark-theme tokens, so the map stays legible either way.
+
+**Surface:** **Solid**, **Dots** (default), **Grid**, **Paper**. The surface is drawn as a CSS pattern — no image asset ships with the plugin, so the map costs nothing to install and the structure never detaches from the colour.
+
+**Branch colours** controls how branches are dyed: **Distinct colour per branch** gives every top-level branch its own stable, desaturated hue on the connector, while **Single preset colour** holds the whole map to the preset's branch ink. Card labels are always the darkest ink, in both modes.
+
+**Heading typeface** follows the vault by default; **Serif** opts into a serif display face.
+
+**Background image** takes a vault-relative path and replaces the surface rather than layering over it. **Background strength** washes paper colour over the image so contrast is recoverable.
+
+The map itself is flat: cards carry a fill and no border, the root is a sheet header with a hairline rule, and elevation is reserved for floating panels. That is what makes a PNG or SVG export identical to the screen — the exported file carries the same presentation attributes and no stylesheet.
 
 If you previously used the mind map functionality from Enhanced Canvas, disable the old plugin first. Existing mind map metadata from the old implementation is currently not compatible.
 
@@ -259,7 +275,9 @@ npm run build
 
 The production build checks TypeScript and generates `main.js`. Copy it with `manifest.json` and `styles.css` into your vault's plugin directory. For development, `npm run dev` rebuilds on source changes; stop it with Ctrl+C.
 
-Run `npm test` for the Native, Organic and Composer model regressions. `npm run test:composer-browser` exercises Composer interactions and the Organic handoff in a headless browser with simulated Obsidian APIs, including inline editing, the docked Inbox, before/child/after hit testing, hysteresis, subtree adoption and bilingual dialogs. Set `CMM_PLAYWRIGHT` to a Playwright module path and `CMM_BROWSER` to a Chromium/Edge executable when using a different local test setup. These tests do not replace checking a real vault.
+`npm test` runs the complete suite: model and parser regressions (`test:unit`), then the headless-browser suites (`test:browser`) that exercise Composer, Sketch, Organic Edit and the writing workspace against simulated Obsidian APIs. `test:unit` alone is the fast path while iterating. Playwright is a devDependency; the browser suites locate it and a Chromium-based browser automatically, and skip with a clear message when neither is available. Set `CMM_PLAYWRIGHT` or `CMM_BROWSER` to override either, or `CMM_REQUIRE_BROWSER=1` to make a missing browser a failure (which is what CI does).
+
+Three extra guards protect presentation work. The browser suites compare screenshots against committed baselines in `baselines/` and fail past a calibrated pixel tolerance, writing an annotated diff to `tmp/visual-diffs/`; re-record with `CMM_UPDATE_BASELINES=1` when a visual change is intended. Because a small property change can shift fewer pixels than gesture jitter, `verify-render-contract.cjs` additionally asserts card radius, borderless cards, the root sheet header, the single tapered connector and font metrics at the DOM level, and that `styles.css` never overrides them. `verify-design-tokens.cjs` keeps one owner per value: hex literals and raw `font-size` declarations may only appear in the token layers, every palette must declare its full set in both themes, the TypeScript radius and branch-palette mirrors must equal their CSS counterparts, and `main.js` must stay inside a size budget so an image payload cannot creep back in. `verify-layout-composition.cjs` ratchets layout reach spread, sibling gaps and aspect ratio. None of these replace checking a real vault.
 
 ## Feedback
 

@@ -1,7 +1,9 @@
 const assert=require('node:assert/strict'),path=require('node:path'),{pathToFileURL}=require('node:url');
-const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {launchOptions,requireTooling}=require('./lib/browser.cjs');
+const {expectScreenshot}=require('./lib/visual.cjs');
+const {chromium}=requireTooling('Composer interaction browser');
 (async()=>{
- const browser=await chromium.launch({headless:true,executablePath:process.env.CMM_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
+ const browser=await chromium.launch(launchOptions());
  try {
   const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(7000);
   const url=pathToFileURL(path.resolve('tmp/composer-browser/index.html')).href;
@@ -33,7 +35,7 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   const before=await point(node('Project Plan')), oldWidth=(await map.boundingBox()).width, selection=(await state()).selection, zoom=await page.evaluate(()=>window.composerTest.view.viewport.scale);
   await page.getByRole('button',{name:'Ideas',exact:true}).click();
   const after=await point(node('Project Plan')),opened=(await map.boundingBox()),sidebar=await page.locator('.cmm-composer-unsorted').boundingBox();
-  assert.ok(opened.width<oldWidth-150);assert.ok(sidebar.x+sidebar.width<=opened.x+1);assert.ok(Math.abs(before.x-after.x)<2);assert.equal((await state()).selection,selection);assert.equal(await page.evaluate(()=>window.composerTest.view.viewport.scale),zoom);
+  assert.ok(opened.width<oldWidth-150);assert.ok(sidebar.x+sidebar.width<=opened.x+1);assert.ok(Math.abs(before.x-after.x)<2,'x moved '+((before.x-after.x).toFixed(1))+' oldWidth '+oldWidth.toFixed(1)+' opened '+opened.width.toFixed(1)+' sidebar '+sidebar.width.toFixed(1)+' scale '+zoom);assert.equal((await state()).selection,selection);assert.equal(await page.evaluate(()=>window.composerTest.view.viewport.scale),zoom);
   await page.getByRole('button',{name:'Close Ideas',exact:true}).click();assert.ok(Math.abs((await point(node('Project Plan'))).x-before.x)<2);
   await page.getByRole('button',{name:'Ideas',exact:true}).click();
   for(const title of ['Seed A','Seed B','Seed C']) {await capture.fill(title);await capture.press('Enter');assert.equal(await capture.evaluate(el=>document.activeElement===el),true);}
@@ -66,13 +68,16 @@ const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/cod
   await page.getByRole('button',{name:'Close Ideas',exact:true}).click();await fit();await start(node('Milestones'));await move(await point(page.locator('.cmm-composer-ideas-entry')));await page.waitForTimeout(450);assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),true);await page.keyboard.press('Escape');await page.mouse.up();
   assert.equal(await page.locator('.cmm-composer-context button').count(),1);await node('Scope').click({button:'right'});const menuText=await page.getByRole('menu').textContent();assert.ok(!/Add child|Add sibling|Move before|Move after|Move to Unsorted/.test(menuText));await page.getByRole('menuitem',{name:'Duplicate',exact:true}).click();assert.equal((await state()).root.children.filter(n=>n.title==='Scope').length,2);await undo();
   for(const layout of ['Radial','Compact','Horizontal']) {await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Layout',exact:true}).click();await page.getByRole('menuitem',{name:layout,exact:true}).click();assert.ok((await map.boundingBox()).width>240);}
-  await page.screenshot({path:'tmp/composer-browser/composer-inbox-en.png'});
+  await page.mouse.move(4,4);await page.waitForTimeout(60);
+  const inboxEn=await page.screenshot({path:'tmp/composer-browser/composer-inbox-en.png'});
+  expectScreenshot('composer-inbox-en', inboxEn);
   await page.setViewportSize({width:560,height:800});await page.locator('.cmm-composer-body-preview').click();const narrow=await map.boundingBox(),side=await page.locator('.cmm-composer-unsorted').boundingBox(),body=await page.locator('.cmm-composer-body').boundingBox();assert.ok(side.x+side.width<=narrow.x+1);assert.ok(narrow.x+narrow.width<=body.x+1);assert.ok(narrow.width>=240);
   await page.goto(url+'?lang=zh-CN');await page.waitForFunction(()=>window.ready);await page.setViewportSize({width:1440,height:900});
   await page.getByRole('button',{name:'灵感箱',exact:true}).click();await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).fill('双语灵感');await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).press('Enter');assert.equal((await state()).unsorted[0].title,'双语灵感');
-  await page.getByRole('button',{name:'更多',exact:true}).click();await page.getByRole('menuitem',{name:'从模板新建',exact:true}).click();assert.equal(await page.getByRole('button',{name:'项目计划',exact:true}).count(),1);await page.evaluate(()=>document.querySelector('.test-modal').remove());
+  await page.getByRole('button',{name:'更多',exact:true}).click();await page.getByRole('menuitem',{name:'草稿',exact:true}).click();await page.getByRole('menuitem',{name:'从模板新建',exact:true}).click();assert.equal(await page.getByRole('button',{name:'项目计划',exact:true}).count(),1);await page.evaluate(()=>document.querySelector('.test-modal').remove());
   await page.getByRole('button',{name:'创建笔记',exact:true}).click();await page.getByRole('button',{name:'预览 Markdown',exact:true}).click();assert.match(await page.getByRole('alert').textContent(),/灵感箱/);await page.getByRole('button',{name:'取消',exact:true}).click();
-  await page.screenshot({path:'tmp/composer-browser/composer-inbox-zh.png'});
+  const inboxZh=await page.screenshot({path:'tmp/composer-browser/composer-inbox-zh.png'});
+  expectScreenshot('composer-inbox-zh', inboxZh);
   const languageDraft=await state();await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).fill('Still typing');await page.evaluate(()=>window.composerTest.setLanguage('en'));assert.equal(await capture.inputValue(),'Still typing');assert.equal((await state()).root.title,languageDraft.root.title);assert.deepEqual((await state()).unsorted,languageDraft.unsorted);assert.equal(await page.getByRole('button',{name:'Create Note',exact:true}).count(),1);
   await page.evaluate(()=>window.composerTest.setLanguage('zh-CN'));await page.evaluate(()=>window.composerTest.setLanguage('en'));await capture.press('Enter');assert.equal((await state()).unsorted.length,2);assert.equal((await state()).unsorted[1].title,'Still typing');
   assert.deepEqual(errors,[]);

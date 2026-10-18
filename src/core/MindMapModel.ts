@@ -27,12 +27,12 @@ export function buildMindMapModel(markdown: string, options: {
     const nodes: MindMapNode[] = sections.map((section, index) => ({
         id: `heading:${section.key}`, key: section.key, title: section.title, content: section.content,
         headingLevel: section.level, depth: section.depth - (promote ? 1 : 0),
-        parentId: promote && index === 0 ? undefined : section.parent < 0 ? 'document' : `heading:${sections[section.parent].key}`,
+        parentId: promote && index === 0 ? undefined : section.parent < 0 ? 'document' : `heading:${sections[section.parent]?.key ?? ''}`,
         children: [], source: { file: options.file, line: section.line, endLine: section.endLine },
     }));
     if (!promote) nodes.unshift({ id: 'document', key: '', title: options.title, content: '', headingLevel: 0,
         depth: 0, children: [], source: { file: options.file, line: 0, endLine: markdown.split(/\r?\n/).length } });
     const lookup = new Map(nodes.map(node => [node.id, node]));
     for (const node of nodes) if (node.parentId) lookup.get(node.parentId)!.children.push(node.id);
-    return { rootId: nodes[0].id, nodes, sourceFile: options.file };
+    return { rootId: nodes[0]?.id ?? 'document', nodes, sourceFile: options.file };
 }

@@ -1,14 +1,14 @@
-import { Component, ItemView, MarkdownRenderer, Menu, Notice, Scope, TFile, WorkspaceLeaf } from 'obsidian';
+import { Component, ItemView, MarkdownRenderer, Menu, Notice, Platform, Scope, TFile, WorkspaceLeaf } from 'obsidian';
 import { buildMindMapModel, MindMapModel } from '../core/MindMapModel';
 import { t } from '../i18n';
-import { updateAppearanceParallax } from '../appearance/AppearanceParallax';
+
 import { OrganicLayoutEngine, OrganicLayoutResult } from './OrganicLayoutEngine';
-import { OrganicMindMapRenderer, svgElement } from './OrganicMindMapRenderer';
+import { DEFAULT_SURFACE, OrganicMindMapRenderer, svgElement } from './OrganicMindMapRenderer';
 import { OrganicViewState, SavedOrganicState, sourceFingerprint } from './OrganicViewState';
 import { OrganicViewportController } from './OrganicViewportController';
 import type { OrganicStateStore } from './OrganicStateStore';
 import { normalizeOrganicSettings, OrganicSettings } from '../settings';
-import type { AppearancePreset } from '../settings';
+import type { AppearancePreset, BranchColourMode } from '../settings';
 import { OrganicAutoRefreshController } from './OrganicAutoRefreshController';
 import { OrganicIdentity, reconcileOrganicModel } from './OrganicNodeIdentity';
 import { OrganicInteractionController } from './OrganicInteractionController';
@@ -46,6 +46,8 @@ export class OrganicMindMapView extends ItemView {
     private resizeObserver?: ResizeObserver;
     private layoutEpoch = 0;
     private layoutKey = '';
+    /** Root chosen for the open document; decided once per load, never per edit. */
+    private writingRootId?: string | null;
     private searchViewport?: SavedOrganicState['viewport'];
     private get collapsed() { return this.state.collapsed; }
     private set collapsed(value: Set<string>) { this.state.collapsed = value; }
@@ -80,7 +82,8 @@ export class OrganicMindMapView extends ItemView {
     private requestedWritingMode?: boolean;
     constructor(leaf: WorkspaceLeaf, private store?: OrganicStateStore,
         private settings: () => OrganicSettings = () => normalizeOrganicSettings({}), private documentHost?: ObsidianDocumentHost,
-        private appearance: () => AppearancePreset = () => 'ink', private applyAppearance?: (element: HTMLElement) => void) { super(leaf); }
+        private appearance: () => AppearancePreset = () => 'obsidian', private applyAppearance?: (element: HTMLElement) => void,
+        private branchColour: () => BranchColourMode = () => 'palette') { super(leaf); }
     getViewType(): string { return ORGANIC_VIEW; }
     getDisplayText(): string { return this.file ? `${this.file.basename} · Organic` : 'Organic Mind Map'; }
     getIcon(): string { return 'git-fork'; }
@@ -95,6 +98,8 @@ export class OrganicMindMapView extends ItemView {
         this.requestedWritingMode = state.writing;
         if (typeof state.file === 'string') {
             this.sourcePath = state.file;
+            // A new document gets a fresh root decision; a re-read of the same one must keep it.
+            this.writingRootId = undefined;
             const file = this.app.vault.getAbstractFileByPath(state.file);
             if (file instanceof TFile && supportedSource(file)) await this.loadSource(file);
             else this.sourceDeleted(state.file);
@@ -140,15 +145,27 @@ export class OrganicMindMapView extends ItemView {
         this.revision++; this.autoRefresh?.cancel(); this.file = undefined;
         if (this.status) this.status.textContent = t('无法读取原笔记，请确认文件仍然存在。');
     }
+    /**
+     * The pane size, or undefined before it has been laid out. A fabricated fallback must never
+     * reach persisted state: the saved viewport stores a centre derived from the size, so
+     * guessing 800x600 would restore the map at a wrong origin on the next open.
+     */
+    private measuredSize(): { width: number; height: number } | undefined {
+        const width = this.svg?.clientWidth ?? 0, height = this.svg?.clientHeight ?? 0;
+        return width > 0 && height > 0 ? { width, height } : undefined;
+    }
     private remember(userAction = true): void {
         if (userAction) this.app.workspace.requestSaveLayout();
         if (!this.file || !this.model || !this.store) return;
+        // Without a measured pane there is nothing meaningful to record; keep the previous snapshot.
+        const size = this.measuredSize();
+        if (!size) return;
         const snapshot: SavedOrganicState = { fingerprint: this.fingerprint, identities: this.identities, collapsed: [...this.collapsed],
-            viewport: this.interaction.focusPaused && this.searchViewport ? this.searchViewport : this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600),
+            viewport: this.interaction.focusPaused && this.searchViewport ? this.searchViewport : this.viewport.snapshot(size.width, size.height),
             focusNode: this.state.focusNode, reading: { ...this.state.reading },
             readerVisible: this.readerVisible, splitRatio: this.splitRatio, selectedNode: this.state.selectedNode, layout: this.state.layout, branchStyles: this.state.branchStyles,
             writing: this.writing ? { enabled: this.isWriting, splitRatio: this.splitRatio, editorVisible: this.editorVisible,
-                snapshot: captureWritingView(this.writing.document, this.state, this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600)) } :
+                snapshot: captureWritingView(this.writing.document, this.state, this.viewport.snapshot(size.width, size.height)) } :
                 this.docxWriting ? { enabled: this.isWriting, splitRatio: this.splitRatio, editorVisible: this.editorVisible } : undefined };
         if (userAction) this.store.put(this.file.path, snapshot, this.stateOwner);
         else this.store.sync(this.file.path, snapshot, this.stateOwner);
@@ -163,11 +180,15 @@ export class OrganicMindMapView extends ItemView {
         });
         this.autoRefresh = new OrganicAutoRefreshController(async () => {
             if (this.file) await this.loadSource(this.file, false);
-        }, () => this.settings().autoRefresh, () => { this.revision++; });
+        }, () => this.settings().autoRefresh, () => { this.revision++; },
+            500, () => new Notice(t('自动刷新失败，请手动刷新导图。')),
+            () => this.contentEl.ownerDocument?.defaultView ?? window);
         this.registerEvent(this.app.vault.on('modify', file => {
             if (file.path === this.sourcePath) this.autoRefresh?.changed();
         }));
         this.contentEl.empty(); this.contentEl.addClass('cmm-organic-view');
+        // Touch devices have no hover, so toolbar controls get larger targets.
+        if (Platform.isMobile) this.contentEl.addClass('is-touch');
         this.contentEl.dataset.cmmAppearance = this.appearance();
         this.applyAppearance?.(this.contentEl);
         this.toolbar = new OrganicToolbar(this.contentEl, {
@@ -210,7 +231,9 @@ export class OrganicMindMapView extends ItemView {
             'aria-label': 'Organic Mind Map', tabindex: 0 });
         this.scene = svgElement(document, 'g'); this.svg.append(this.scene); this.contentEl.append(this.svg);
         const context = document.createElement('canvas').getContext('2d')!;
-        const family = document.defaultView!.getComputedStyle(this.contentEl).fontFamily;
+        const computed = document.defaultView!.getComputedStyle(this.contentEl);
+        // Measurement and paint must use the same face, including the optional serif display face.
+        const family = computed.getPropertyValue('--cmm-font-display').trim() || computed.fontFamily;
         this.measure = (text, size, weight) => {
             context.font = `${weight} ${size}px ${family}`; return context.measureText(text).width;
         };
@@ -220,23 +243,77 @@ export class OrganicMindMapView extends ItemView {
             this.transform(); this.remember(false);
         });
         this.resizeObserver.observe(this.svg);
-        let drag: { id: number; x: number; y: number } | undefined;
+        // Pointer tracking distinguishes mouse pan, touch/pen pan and two-finger pinch. The
+        // previous handler started a pan for any pointerdown, so a second finger fought the
+        // first and zooming on a tablet was impossible.
+        const active = new Map<number, { x: number; y: number }>();
+        let pinch: { distance: number; midpoint: { x: number; y: number } } | undefined;
+        const localPoint = (event: PointerEvent) => {
+            const rect = this.svg.getBoundingClientRect();
+            return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        };
+        /** The two-pointer geometry used by the pinch handler; only called with two pointers. */
+        const twoPointers = (): [{ x: number; y: number }, { x: number; y: number }] | undefined => {
+            const points = [...active.values()];
+            const first = points[0], second = points[1];
+            return first && second ? [first, second] : undefined;
+        };
+        const midpointOf = (points: [{ x: number; y: number }, { x: number; y: number }]) =>
+            ({ x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 });
+        const distanceOf = (points: [{ x: number; y: number }, { x: number; y: number }]) =>
+            Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
         this.svg.addEventListener('pointerdown', event => {
             if (event.button !== 0 || (event.target as Element).closest('[role="link"], [role="button"]')) return;
-            drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
+            active.set(event.pointerId, { x: event.clientX, y: event.clientY });
             this.svg.setPointerCapture(event.pointerId);
+            if (active.size === 2) {
+                const rect = this.svg.getBoundingClientRect();
+                const points = twoPointers();
+                if (!points) return;
+                const middle = midpointOf(points);
+                pinch = { distance: distanceOf(points), midpoint: { x: middle.x - rect.left, y: middle.y - rect.top } };
+            }
         });
         this.svg.addEventListener('pointermove', event => {
-            if (!drag || event.pointerId !== drag.id) return;
-            this.viewport.pan(event.clientX - drag.x, event.clientY - drag.y);
-            drag.x = event.clientX; drag.y = event.clientY; this.scheduleTransform(); this.remember();
+            const previous = active.get(event.pointerId);
+            if (!previous) return;
+            const current = { x: event.clientX, y: event.clientY };
+            active.set(event.pointerId, current);
+            if (active.size >= 2) {
+                if (!pinch) return;
+                const points = twoPointers();
+                if (!points) return;
+                const rect = this.svg.getBoundingClientRect();
+                const middle = midpointOf(points);
+                const distance = distanceOf(points);
+                // Zoom around the pinch midpoint, then follow the midpoint as it drifts.
+                if (pinch.distance > 0 && distance > 0)
+                    this.viewport.zoom(distance / pinch.distance, pinch.midpoint.x, pinch.midpoint.y);
+                const next = { x: middle.x - rect.left, y: middle.y - rect.top };
+                this.viewport.pan(next.x - pinch.midpoint.x, next.y - pinch.midpoint.y);
+                pinch = { distance, midpoint: next };
+                this.transform(); this.remember();
+                return;
+            }
+            if (pinch) return;
+            const dx = current.x - previous.x, dy = current.y - previous.y;
+            if (!dx && !dy) return;
+            this.viewport.pan(dx, dy);
+            this.transform(); this.remember();
         });
-        const stop = () => { drag = undefined; };
-        this.svg.addEventListener('pointerup', stop); this.svg.addEventListener('pointercancel', stop);
-        this.svg.addEventListener('lostpointercapture', stop);
+        const stop = (event: PointerEvent) => {
+            active.delete(event.pointerId);
+            // Dropping below two pointers ends the pinch without a jump from the stale anchor.
+            if (active.size < 2) pinch = undefined;
+        };
+        for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const)
+            this.svg.addEventListener(type, stop);
         this.svg.addEventListener('wheel', event => {
+            // Trackpads report a pinch as ctrl+wheel; treat both as zoom and never as a page scroll.
             event.preventDefault(); const rect = this.svg.getBoundingClientRect();
-            this.zoom(Math.exp(-event.deltaY * 0.002), event.clientX - rect.left, event.clientY - rect.top);
+            const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+            const step = event.ctrlKey ? 0.01 : 0.002;
+            this.zoom(Math.exp(-delta * step), event.clientX - rect.left, event.clientY - rect.top);
         }, { passive: false });
         this.contentEl.addEventListener('keydown', event => {
             const target = event.target as HTMLElement;
@@ -494,14 +571,23 @@ export class OrganicMindMapView extends ItemView {
         const anchor = this.state.selectedNode ?? undefined;
         const topology = (model: MindMapModel | undefined) => JSON.stringify(model?.nodes.map(n => [n.id, n.parentId, n.children]));
         const previousTopology = topology(this.model);
-        const promotedRoot = this.model?.rootId !== DOCUMENT_ROOT && doc.roots.length === 1;
+        const previousRoot = this.model?.rootId;
+        // Whether the document is rooted at its own single H1 is a property of the document, not
+        // of the edit in flight. Re-deciding it per structure change meant that pressing Enter on
+        // a one-heading note (which makes a second H1) re-hung the entire map under the virtual
+        // document node on the same keystroke.
+        if (this.writingRootId === undefined) this.writingRootId = doc.roots.length === 1 ? doc.roots[0] ?? null : null;
+        if (this.writingRootId && !doc.sections.has(this.writingRootId)) this.writingRootId = null;
+        const rootId = this.writingRootId;
         this.model = projectDocumentMindMap(doc, this.file ? this.file.basename : doc.sourcePath);
         // Keep the existing View root semantics when first opening Edit.
-        if (promotedRoot) {
-            this.model.rootId = doc.roots[0];
+        if (rootId) {
+            this.model.rootId = rootId;
             this.model.nodes = this.model.nodes.filter(n => n.id !== DOCUMENT_ROOT).map(n => ({ ...n,
-                depth: n.depth - 1, parentId: n.id === doc.roots[0] ? undefined : n.parentId }));
+                depth: n.depth - 1, parentId: n.id === rootId ? undefined : n.parentId }));
         }
+        // If the root genuinely changed, the branch assignment describes the old tree.
+        if (previousRoot !== undefined && previousRoot !== this.model.rootId) this.state.branchStyles = Object.create(null);
         this.sourceText = doc.text; this.fingerprint = sourceFingerprint(doc.text);
         this.state.selectedNode = selected;
         if (structureChanged) {
@@ -516,21 +602,43 @@ export class OrganicMindMapView extends ItemView {
             if (!focused || !current || current.heading.start < focused.subtree.start || current.heading.start >= focused.subtree.end) this.state.focusNode = null;
         }
         if (structureChanged) this.layoutEpoch++;
-        this.interaction.update(this.model); this.draw(structureChanged && previousTopology !== topology(this.model) ? (this.model.nodes.some(n => n.id === anchor) ? anchor : selected) : undefined, structureChanged);
-        this.status.textContent = `${t('{count} 个章节', { count: doc.order.length })} · ${t('Enter 同级 / Tab 子章节 / F2 重命名')}${doc.diagnostics.length ? ' · ' + t('当前文档需修复：{message}', { message: doc.diagnostics[0].message }) : ''}`;
+        const rootChanged = previousRoot !== undefined && previousRoot !== this.model.rootId;
+        this.interaction.update(this.model);
+        // A re-root is not a local reflow: anchoring one node would translate everything else by
+        // the map's own reach, so re-frame once instead.
+        this.draw(rootChanged ? undefined : structureChanged && previousTopology !== topology(this.model) ? (this.model.nodes.some(n => n.id === anchor) ? anchor : selected) : undefined, structureChanged);
+        if (rootChanged) this.fit();
+        this.status.textContent = `${t('{count} 个章节', { count: doc.order.length })} · ${t('Enter 同级 / Tab 子章节 / F2 重命名')}${doc.diagnostics.length ? ' · ' + t('当前文档需修复：{message}', { message: doc.diagnostics[0]?.message ?? '' }) : ''}`;
     }
     private async exportMap(format: 'svg' | 'png'): Promise<void> {
         const file = this.file, result = this.result;
         if (!file || !result || this.exporting) return;
         this.exporting = true;
+        // Rasterising at 2x on a large map can take seconds; say so and disable the click rather
+        // than leaving the toolbar looking unresponsive.
+        const previousStatus = this.status?.textContent ?? '';
+        if (this.status) this.status.textContent = t(format === 'png' ? '正在导出 PNG…' : '正在导出 SVG…');
         try {
             const doc = this.contentEl.ownerDocument, style = doc.defaultView!.getComputedStyle(this.contentEl);
             const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
             const service = new OrganicExportService();
             const svg = service.svg(doc, result, {
-                background: color('--background-primary', '#fffaf4'), rootBackground: color('--background-secondary', '#f7efe4'),
-                foreground: color('--text-normal', '#45423f'), border: color('--text-faint', '#c6b9a6'),
-                accent: color('--interactive-accent', '#218b89'), highlight: color('--text-highlight-bg', '#ffe39c'), fontFamily: style.fontFamily,
+                // Mirror the on-screen paper tokens so an export is not a different-looking map.
+                background: color('--cmm-paper', color('--background-primary', '#fffaf4')),
+                rootBackground: color('--cmm-paper-raised', color('--background-secondary', '#f7efe4')),
+                nodeBackground: color('--cmm-paper-raised', color('--background-secondary', '#f7efe4')),
+                foreground: color('--cmm-ink', color('--text-normal', '#45423f')),
+                muted: color('--cmm-ink', color('--text-normal', '#45423f')),
+                branch: color('--cmm-branch', color('--text-muted', '#8c887d')),
+                border: color('--cmm-rule', color('--text-faint', '#c6b9a6')),
+                accent: color('--cmm-accent', color('--interactive-accent', '#218b89')),
+                highlight: color('--text-highlight-bg', '#ffe39c'), fontFamily: style.fontFamily,
+                // Per-branch hues are tokens on screen; an export has no stylesheet to resolve them.
+                resolve: declaration => {
+                    const match = /var\(\s*(--[A-Za-z0-9-]+)\s*(?:,\s*([^)]+))?\)/.exec(declaration);
+                    if (!match) return declaration;
+                    return style.getPropertyValue(match[1] ?? '').trim() || match[2]?.trim() || '#888888';
+                },
             }, { matches: new Set(this.interaction.search.results), currentMatch: this.interaction.search.current,
                 selected: this.state.selectedNode, reading: this.state.reading.currentNode, emphasized: this.interaction.emphasized() });
             const blob = format === 'svg' ? new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }) : await service.png(doc, svg, result, this.settings().pngScale);
@@ -542,7 +650,11 @@ export class OrganicMindMapView extends ItemView {
         } catch (error) {
             new Notice(t(error instanceof Error && error.message === 'PNG_TOO_LARGE' ? 'PNG 尺寸过大，请降低导出倍率、折叠分支或使用 SVG。' : '导出失败，请查看控制台。'));
             console.error('Organic export failed', error);
-        } finally { this.exporting = false; }
+        } finally {
+            this.exporting = false;
+            // Restore the descriptive status line; the Notice already carried the outcome.
+            if (this.status) this.status.textContent = previousStatus;
+        }
     }
     private searchJump(): void {
         if (!this.searchViewport && this.interaction.search.query) this.searchViewport = this.viewport.snapshot(this.svg.clientWidth || 800, this.svg.clientHeight || 600);
@@ -698,8 +810,14 @@ export class OrganicMindMapView extends ItemView {
             this.offset.x += (old.x - next.x) * this.scale;
             this.offset.y += (old.y - next.y) * this.scale;
         }
-        this.result = result;
-        this.renderer.render(this.scene, result, {
+        // Palette identity is resolved at paint time so switching colour mode never needs a relayout.
+        const painted = this.branchColour() === 'monochrome'
+            ? { ...result,
+                nodes: result.nodes.map(node => ({ ...node, color: node.depth === 0 ? 'var(--cmm-ink)' : 'var(--cmm-branch)' })),
+                branches: result.branches.map(branch => ({ ...branch, color: 'var(--cmm-branch)' })) }
+            : result;
+        this.result = painted;
+        this.renderer.render(this.scene, painted, {
             navigate: id => { void this.navigate(id); },
             toggle: id => {
                 this.interaction.toggle(id);
@@ -722,6 +840,8 @@ export class OrganicMindMapView extends ItemView {
             })) : undefined,
             duration: animate && this.settings().animation ? this.settings().animationDuration : 0,
             previousTranslation: old && next ? { x: next.x - old.x, y: next.y - old.y } : undefined,
+            // The root is a sheet header, so it names the document it belongs to.
+            eyebrow: this.file?.basename.toUpperCase(),
         });
         this.toolbar?.update(this.interaction.search.index, this.interaction.search.results.length, !!this.state.focusNode, !!this.state.reading.rootNode, this.state.layout);
         this.transform();
@@ -756,7 +876,7 @@ export class OrganicMindMapView extends ItemView {
                 ? this.sourceLeaf : this.app.workspace.getLeaf('split');
             this.sourceLeaf = leaf;
             await leaf.openFile(file, { active: true, eState: { line: node.source.line } });
-        } catch (error) { new Notice(t('无法读取原笔记，请确认文件仍然存在。')); }
+        } catch { new Notice(t('无法读取原笔记，请确认文件仍然存在。')); }
     }
     private transform(): void {
         const win = this.contentEl.ownerDocument?.defaultView;
@@ -764,7 +884,6 @@ export class OrganicMindMapView extends ItemView {
         this.transformFrame = undefined;
         this.viewport.cancel();
         this.scene.setAttribute('transform', `translate(${this.offset.x} ${this.offset.y}) scale(${this.scale})`);
-        if (this.appearance() !== 'white') updateAppearanceParallax(this.svg, this.offset.x, this.offset.y, this.scale);
     }
     private scheduleTransform(): void {
         const win = this.contentEl.ownerDocument?.defaultView;

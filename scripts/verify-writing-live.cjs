@@ -1,5 +1,6 @@
 const path=require('node:path');
-const {chromium}=require(process.env.CMM_PLAYWRIGHT||'C:/Users/Lenovo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const { requirePlaywright } = require('./lib/browser.cjs');
+const { chromium } = requirePlaywright('Writing live');
 (async()=>{
  const browser=await chromium.connectOverCDP('http://127.0.0.1:9237');
  try {

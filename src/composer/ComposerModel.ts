@@ -153,36 +153,46 @@ export function createParent(draft: ComposerDraft, ids: readonly string[], title
     if (!title.trim()) throw new Error('Enter a parent title.');
     const roots = selectedRoots(draft, ids);
     if (!roots.length) throw new Error('Select one or more sibling nodes.');
-    const siblings = siblingsOf(draft, roots[0].node.id);
+    const head = roots[0];
+    if (!head) throw new Error('Select one or more sibling nodes.');
+    const siblings = siblingsOf(draft, head.node.id);
     if (roots.some(e => siblingsOf(draft, e.node.id) !== siblings)) throw new Error('Create parent requires nodes with the same parent.');
-    const parent = newNode(title.trim()), index = siblings.indexOf(roots[0].node);
+    const parent = newNode(title.trim()), index = siblings.indexOf(head.node);
     parent.children = roots.map(e => e.node);
     for (const { node } of roots) siblings.splice(siblings.indexOf(node), 1);
     siblings.splice(index, 0, parent); draft.selection = parent.id; draft.selections = [parent.id]; validate(draft); return parent.id;
 }
 /** Atomic draft transactions: invalid changes never escape into the live document. */
 export class ComposerHistory {
+    /** Undo holds whole-draft clones, so the stack needs a hard ceiling: a long session over a
+     * large document would otherwise retain a copy of it per step for the life of the tab. */
+    static readonly LIMIT = 100;
     private undoStack: ComposerDraft[] = [];
     private redoStack: ComposerDraft[] = [];
     private group = ''; private changedAt = 0;
     private editing?: ComposerDraft;
     constructor(public draft: ComposerDraft) { validate(draft); }
+    private static push(stack: ComposerDraft[], entry: ComposerDraft): void {
+        stack.push(entry);
+        // Drop the oldest entries together so the ceiling cannot be crept past one step at a time.
+        if (stack.length > ComposerHistory.LIMIT) stack.splice(0, stack.length - ComposerHistory.LIMIT);
+    }
     beginEdit(): void { if (!this.editing) this.editing = clone(this.draft); }
     endEdit(cancel = false): void {
         if (!this.editing) return;
         if (cancel) this.draft = this.editing;
-        else if (JSON.stringify(this.editing) !== JSON.stringify(this.draft)) { this.undoStack.push(this.editing); this.redoStack = []; }
+        else if (JSON.stringify(this.editing) !== JSON.stringify(this.draft)) { ComposerHistory.push(this.undoStack, this.editing); this.redoStack = []; }
         this.editing = undefined; this.group = '';
     }
     change(edit: (draft: ComposerDraft) => void, group = ''): void {
         const next = clone(this.draft); edit(next); validate(next); pruneSketch(next);
         if (JSON.stringify(next) === JSON.stringify(this.draft)) return;
-        if (!this.editing && (!group || group !== this.group || Date.now() - this.changedAt > 800)) this.undoStack.push(clone(this.draft));
+        if (!this.editing && (!group || group !== this.group || Date.now() - this.changedAt > 800)) ComposerHistory.push(this.undoStack, clone(this.draft));
         this.group = group; this.changedAt = Date.now(); if (!this.editing) this.redoStack = [];
         next.updatedAt = Date.now(); this.draft = next;
     }
-    undo(): void { const previous = this.undoStack.pop(); if (previous) { this.redoStack.push(clone(this.draft)); this.draft = previous; } this.group = ''; }
-    redo(): void { const next = this.redoStack.pop(); if (next) { this.undoStack.push(clone(this.draft)); this.draft = next; } this.group = ''; }
+    undo(): void { const previous = this.undoStack.pop(); if (previous) { ComposerHistory.push(this.redoStack, clone(this.draft)); this.draft = previous; } this.group = ''; }
+    redo(): void { const next = this.redoStack.pop(); if (next) { ComposerHistory.push(this.undoStack, clone(this.draft)); this.draft = next; } this.group = ''; }
 }
 /** Return exact heading offsets, so duplicate titles survive the Organic handoff. */
 export interface ComposerExportOptions { ideas?: 'headings' | 'bullets' | 'exclude'; unsorted?: 'append' | 'exclude' }
@@ -229,9 +239,11 @@ export function exportMarkdown(draft: ComposerDraft, options: ComposerExportOpti
 }
 export function notePath(name: string, folder: string): string {
     const base = name.trim().replace(/\.md$/i, '');
+    // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
     if (!base || /[<>:"/\\|?*\x00-\x1f]/.test(base) || /[. ]$/.test(base) || /^\.{1,2}$/.test(base) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(base))
         throw new Error('Enter a valid Markdown filename.');
     const location = folder.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
     if (location.split('/').some(part => part === '.' || part === '..' || /[<>:"|?*\x00-\x1f]/.test(part))) throw new Error('Enter a valid vault folder.');
     return `${location ? location + '/' : ''}${base}.md`;
 }

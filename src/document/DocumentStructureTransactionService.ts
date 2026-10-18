@@ -16,6 +16,7 @@ export interface PreparedTransaction {
 }
 
 export function normalizeHeadingTitle(value: string): string {
+    // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
     if (/[\r\n\u0000]/.test(value)) throw new StructureError('invalid-title', 'A heading title must be a single line without NUL characters.');
     const title = value.trim().replace(/^#{1,6}(?:[\t ]+|$)/, '').trim();
     if (!title) throw new StructureError('empty-title', 'Enter a heading title before committing the draft.');
@@ -59,8 +60,8 @@ export class DocumentStructureTransactionService {
                 throw new StructureError('invalid-index', 'The destination index is outside the parent.');
             const level = targetLevel ?? (parent ? parent.headingLevel + 1 : 1), delta = level - source.headingLevel;
             subtree.forEach(s => this.checkLevel(s.headingLevel + delta));
-            const position = index < children.length ? requireSection(doc, children[index]).heading.start :
-                children.length ? requireSection(doc, children[children.length - 1]).subtree.end : parent?.body.end ?? doc.text.length;
+            const position = index < children.length ? requireSection(doc, children[index] ?? '').heading.start :
+                children.length ? requireSection(doc, children[children.length - 1] ?? '').subtree.end : parent?.body.end ?? doc.text.length;
             if (position > source.subtree.start && position < source.subtree.end)
                 throw new StructureError('cycle', 'The destination is inside the section being moved.');
             const localEdits: TextEdit[] = delta ? subtree.map(s => ({
@@ -86,7 +87,7 @@ export class DocumentStructureTransactionService {
             if (before) destination = order.indexOf(before);
             else if (parent) {
                 destination = order.indexOf(parent.id) + 1;
-                while (destination < order.length && requireSection(doc, order[destination]).heading.start < parent.subtree.end) destination++;
+                while (destination < order.length && requireSection(doc, order[destination] ?? '').heading.start < parent.subtree.end) destination++;
             } else destination = order.length;
             order.splice(destination, 0, ...subtree.map(s => s.id));
             for (const s of subtree) expected.get(s.id)!.level += delta;
@@ -155,7 +156,7 @@ export class DocumentStructureTransactionService {
             case 'demote': {
                 const s = requireSection(doc, operation.nodeId), list = siblings(s.parentId), index = list.indexOf(s.id);
                 if (index <= 0) throw new StructureError('cannot-demote', 'There is no previous sibling to become the parent.');
-                const parent = requireSection(doc, list[index - 1]);
+                const parent = requireSection(doc, list[index - 1] ?? '');
                 move(s.id, parent.id, parent.children.length);
                 break;
             }

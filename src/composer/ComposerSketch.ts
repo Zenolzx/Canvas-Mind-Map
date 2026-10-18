@@ -1,12 +1,14 @@
 import type { OrganicLayoutResult, OrganicNode, Point } from '../organic/OrganicLayoutEngine';
 import { svgElement } from '../organic/OrganicMindMapRenderer';
+import { SKETCH_NOTE_PAPERS, SKETCH_PALETTE } from '../design/palette';
+import { RADIUS } from '../design/geometry';
 import type { SketchAnnotation, SketchState } from './ComposerModel';
 
 const hash = (value: string): number => { let n = 2166136261; for (const ch of value) n = Math.imul(n ^ ch.charCodeAt(0), 16777619); return n >>> 0; };
-const BRANCH_COLORS = ['#668f86', '#b98772', '#8586a8', '#989e70', '#9b7790', '#718fa8'];
-const NOTE_PAPERS = ['#fffaf0', '#f4faf5', '#fbf5f1', '#f6f6fb'];
+const BRANCH_COLORS = SKETCH_PALETTE;
+const NOTE_PAPERS = SKETCH_NOTE_PAPERS;
 export const SKETCH_NOTE_SIZE = { width: 174, height: 86 } as const;
-export const sketchBranchColor = (id: string): string => BRANCH_COLORS[hash(id) % BRANCH_COLORS.length];
+export const sketchBranchColor = (id: string): string => BRANCH_COLORS[hash(id) % BRANCH_COLORS.length] ?? BRANCH_COLORS[0]!;
 const wobble = (key: string, size: number): number => ((hash(key) % 2001) / 1000 - 1) * size;
 const center = (n: OrganicNode): Point => ({ x: n.x + n.width / 2, y: n.y + n.height / 2 });
 export const sketchId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -17,10 +19,11 @@ export function sketchLayout(base: OrganicLayoutResult, state: SketchState): Org
         const saved = state.positions[node.id];
         const drift = node.depth > 0 ? { x: wobble(`${node.id}:x`, 9), y: wobble(`${node.id}:y`, 13) } : { x: 0, y: 0 };
         const extra = node.depth === 0 ? { width: 28, height: 12, font: 2.5 } : node.depth === 1 ? { width: 12, height: 6, font: 1 } : { width: 0, height: 0, font: 0 };
+        const savedX = saved?.x, savedY = saved?.y;
         return { ...node, width: node.width + extra.width, height: node.height + extra.height,
             fontSize: node.fontSize + extra.font,
-            x: Number.isFinite(saved?.x) ? saved.x : node.x - extra.width / 2 + drift.x,
-            y: Number.isFinite(saved?.y) ? saved.y : node.y - extra.height / 2 + drift.y };
+            x: Number.isFinite(savedX) ? savedX! : node.x - extra.width / 2 + drift.x,
+            y: Number.isFinite(savedY) ? savedY! : node.y - extra.height / 2 + drift.y };
     });
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches = base.branches.map(branch => {
@@ -42,6 +45,16 @@ export function sketchLayout(base: OrganicLayoutResult, state: SketchState): Org
         height: Math.max(...all.map(n => n.y + n.height)) - top + 70 } };
 }
 
+/**
+ * Stable jitter seed for a hand-drawn stroke.
+ *
+ * The `wobble` function is seeded from its key, so deriving that key from an annotation id made
+ * the drawn shape change every time a draft was reopened (ids are regenerated on load). Seed
+ * from the kind plus the annotation's position in the saved list instead: per-annotation variety
+ * is preserved, but a mark keeps its exact shape across sessions.
+ */
+const strokeSeed = (annotation: SketchAnnotation, index: number) => `${annotation.kind}:${index}`;
+
 export function paintSketch(scene: SVGGElement, layout: OrganicLayoutResult, state: SketchState, selectedNote?: string, selectedAnnotation?: string, selectedLink?: string): void {
     scene.querySelector('.cmm-sketch-overlays')?.remove();
     scene.querySelector('.cmm-sketch-underlay')?.remove();
@@ -51,22 +64,25 @@ export function paintSketch(scene: SVGGElement, layout: OrganicLayoutResult, sta
     scene.append(overlay);
     const nodes = new Map(layout.nodes.map(n => [n.id, { x: n.x, y: n.y, width: n.width, height: n.height }]));
     for (const note of state.notes) nodes.set(note.id, { x: note.position.x, y: note.position.y, ...SKETCH_NOTE_SIZE });
+    const seedOf = new Map(state.annotations.map((annotation, index) => [annotation.id, strokeSeed(annotation, index)]));
+    const seedFor = (annotation: SketchAnnotation) => seedOf.get(annotation.id) ?? strokeSeed(annotation, 0);
     for (const link of state.links) {
         const from = nodes.get(link.from), to = nodes.get(link.to); if (!from || !to) continue;
         const path = svgElement(doc, 'path', { d: sketchLinkPath(link.id, from, to),
             class: `cmm-sketch-link${selectedLink === link.id ? ' is-selected' : ''}`, 'data-link-id': link.id }); overlay.append(path);
     }
     for (const annotation of state.annotations.filter(a => !a.anchorId)) {
-        const group = sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id);
+        const group = sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id, seedFor(annotation));
         (annotation.kind === 'highlight' ? underlay : overlay).append(group);
     }
     for (const note of state.notes) {
         const group = svgElement(doc, 'g', { class: `cmm-sketch-note${selectedNote === note.id ? ' is-selected' : ''}`, 'data-free-note-id': note.id,
             transform: `translate(${note.position.x} ${note.position.y})` });
-        group.style.setProperty('--cmm-note-paper', NOTE_PAPERS[hash(note.id) % NOTE_PAPERS.length]);
-        group.append(svgElement(doc, 'rect', { class: 'cmm-sketch-note-paper', x: 1, y: 1, width: SKETCH_NOTE_SIZE.width - 2, height: SKETCH_NOTE_SIZE.height - 2, rx: 10 }));
+        group.style.setProperty('--cmm-note-paper', NOTE_PAPERS[hash(note.id) % NOTE_PAPERS.length] ?? NOTE_PAPERS[0]!);
+        group.append(svgElement(doc, 'rect', { class: 'cmm-sketch-note-paper', x: 1, y: 1, width: SKETCH_NOTE_SIZE.width - 2, height: SKETCH_NOTE_SIZE.height - 2, rx: RADIUS.m }));
         group.append(svgElement(doc, 'path', { class: 'cmm-sketch-note-accent', d: `M13 9 L${SKETCH_NOTE_SIZE.width - 13} 9` }));
-        for (const annotation of state.annotations.filter(a => a.anchorId === note.id)) group.append(sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id));
+        for (const annotation of state.annotations.filter(a => a.anchorId === note.id))
+            group.append(sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id, seedFor(annotation)));
         const label = svgElement(doc, 'text', { x: 14, y: 31 }); label.textContent = note.title.slice(0, 22); group.append(label);
         const preview = svgElement(doc, 'text', { x: 14, y: 57, class: 'cmm-sketch-note-preview' }); preview.textContent = note.body.replace(/\s+/g, ' ').slice(0, 24); group.append(preview);
         overlay.append(group);
@@ -75,22 +91,26 @@ export function paintSketch(scene: SVGGElement, layout: OrganicLayoutResult, sta
         const group = scene.querySelector<SVGGElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
         if (!group) continue;
         group.classList.add('cmm-sketch-structural');
-        group.style.setProperty('--cmm-sketch-branch', node.depth === 0 ? BRANCH_COLORS[0] : sketchBranchColor(node.rootBranchId ?? node.id));
+        group.style.setProperty('--cmm-sketch-branch', node.depth === 0 ? (BRANCH_COLORS[0] ?? '#668f86') : sketchBranchColor(node.rootBranchId ?? node.id));
         const outline = node.depth < 2 ? svgElement(doc, 'path', { d: roughOutline(node.width, node.height, node.id), class: 'cmm-sketch-outline' }) : svgElement(doc, 'path', { d: `M8 ${node.height - 3} Q${node.width / 2} ${node.height + wobble(node.id, 3)} ${node.width - 8} ${node.height - 3}`, class: 'cmm-sketch-underline' });
         group.querySelector('[role=link]')?.insertBefore(outline, group.querySelector('.cmm-organic-hitbox')?.nextSibling ?? null);
         if (node.depth === 0 && !state.annotations.some(mark => mark.anchorId === node.id && mark.kind === 'ellipse')) group.querySelector('[role=link]')?.insertBefore(svgElement(doc, 'path', { d: roughOutline(node.width + 5, node.height + 3, node.id + ':echo'), class: 'cmm-sketch-outline-echo', transform: 'translate(-2.5 -1.5)' }), outline);
         const link = group.querySelector('[role=link]');
-        for (const annotation of state.annotations.filter(a => a.anchorId === node.id)) link?.insertBefore(sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id), link.querySelector('text'));
+        for (const annotation of state.annotations.filter(a => a.anchorId === node.id))
+            link?.insertBefore(sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id, seedFor(annotation)), link.querySelector('text'));
     }
 }
-export function sketchAnnotationElement(doc: Document, annotation: SketchAnnotation, selected = false): SVGGElement {
+export function sketchAnnotationElement(doc: Document, annotation: SketchAnnotation, selected = false, seed?: string): SVGGElement {
     const { start: a, end: b } = annotation;
+    // Fall back to the id so a standalone preview still draws; saved marks pass a stable seed.
+    const key = seed ?? annotation.id;
     const group = svgElement(doc, 'g', { class: `cmm-sketch-annotation is-${annotation.kind}${selected ? ' is-selected' : ''}`, 'data-annotation-id': annotation.id });
     if (annotation.kind === 'text') {
         const characters = Array.from((annotation.text ?? '').replace(/\s+/g, ' ').trim());
         const label = characters.length > 42 ? `${characters.slice(0, 41).join('')}…` : characters.join('');
+        // eslint-disable-next-line no-control-regex -- control characters must be detected in this validator
         const width = Math.max(48, Math.min(360, Array.from(label).reduce((size, character) => size + (/[^\u0000-\u00ff]/.test(character) ? 13 : 7), 20)));
-        group.append(svgElement(doc, 'rect', { class: 'cmm-sketch-caption-paper', x: a.x - 9, y: a.y - 19, width, height: 29, rx: 5 }));
+        group.append(svgElement(doc, 'rect', { class: 'cmm-sketch-caption-paper', x: a.x - 9, y: a.y - 19, width, height: 29, rx: RADIUS.xs }));
         const text = svgElement(doc, 'text', { x: a.x, y: a.y, class: 'cmm-sketch-caption' }); text.textContent = label; group.append(text);
     } else {
         let shape: SVGElement;
@@ -98,7 +118,7 @@ export function sketchAnnotationElement(doc: Document, annotation: SketchAnnotat
             shape = svgElement(doc, 'ellipse', { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, rx: Math.max(6, Math.abs(b.x - a.x) / 2), ry: Math.max(6, Math.abs(b.y - a.y) / 2) });
         } else {
             const curve = annotation.kind === 'highlight' ? 2 : 9;
-            shape = svgElement(doc, 'path', { d: `M${a.x} ${a.y} Q${(a.x + b.x) / 2 + wobble(annotation.id, curve)} ${(a.y + b.y) / 2 + wobble(annotation.id + 'y', curve)} ${b.x} ${b.y}` });
+            shape = svgElement(doc, 'path', { d: `M${a.x} ${a.y} Q${(a.x + b.x) / 2 + wobble(key, curve)} ${(a.y + b.y) / 2 + wobble(`${key}y`, curve)} ${b.x} ${b.y}` });
         }
         shape.classList.add('cmm-sketch-mark'); group.append(shape);
         const hit = shape.cloneNode() as SVGElement; hit.classList.replace('cmm-sketch-mark', 'cmm-sketch-mark-hit'); group.append(hit);
