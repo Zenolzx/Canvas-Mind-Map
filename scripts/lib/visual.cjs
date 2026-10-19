@@ -17,6 +17,14 @@
  * panel), and gesture-sensitive captures pass an explicit wider band. Property-level regressions
  * that pixels cannot resolve are covered by scripts/verify-render-contract.cjs instead.
  * Raise it with CMM_VISUAL_MAX_DIFF, or re-record with CMM_UPDATE_BASELINES=1.
+ *
+ * Platform scope: glyph rasterisation and font fallback are not portable. The fixtures ask for
+ * Arial, which Linux does not ship, so the same code produces a different image on a different
+ * OS — text metrics shift every node width and therefore the whole layout. A baseline therefore
+ * records the platform it was captured on (baselines/environment.json), and a capture taken on
+ * another platform is a loud SKIP rather than a false regression. Set CMM_REQUIRE_VISUAL=1 to
+ * compare anyway. Property-level regressions are covered by verify-render-contract.cjs and
+ * verify-design-tokens.cjs, which do not depend on the host.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -24,6 +32,7 @@ const path = require('node:path');
 const { PNG } = require('playwright-core/lib/utilsBundle');
 
 const BASELINE_DIR = path.resolve('baselines');
+const ENVIRONMENT_FILE = path.join(BASELINE_DIR, 'environment.json');
 const DIFF_DIR = path.resolve('tmp/visual-diffs');
 
 /** Fraction of pixels allowed to differ, and the per-channel delta treated as identical. */
@@ -31,6 +40,24 @@ const DEFAULT_MAX_DIFF = Number(process.env.CMM_VISUAL_MAX_DIFF ?? 0.0012);
 const CHANNEL_TOLERANCE = Number(process.env.CMM_VISUAL_CHANNEL_TOLERANCE ?? 8);
 
 const decoding = new Set();
+const skipped = new Set();
+
+/** Per-baseline recording platform, so a partial re-record only rescopes what it touched. */
+function readEnvironment() {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(ENVIRONMENT_FILE, 'utf8'));
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch { return {}; }
+}
+
+function recordEnvironment(name) {
+    const environment = readEnvironment();
+    if (environment[name] === process.platform) return;
+    environment[name] = process.platform;
+    const ordered = Object.fromEntries(Object.entries(environment).sort(([a], [b]) => a.localeCompare(b)));
+    fs.mkdirSync(BASELINE_DIR, { recursive: true });
+    fs.writeFileSync(ENVIRONMENT_FILE, `${JSON.stringify(ordered, null, 2)}\n`);
+}
 
 function decode(buffer) {
     return PNG.sync.read(buffer);
@@ -102,6 +129,7 @@ function expectScreenshot(name, buffer, options = {}) {
     if (process.env.CMM_UPDATE_BASELINES === '1') {
         fs.mkdirSync(BASELINE_DIR, { recursive: true });
         fs.writeFileSync(baselinePath, buffer);
+        recordEnvironment(name);
         console.log(`updated baseline: baselines/${name}.png`);
         return { updated: true };
     }
@@ -112,9 +140,24 @@ function expectScreenshot(name, buffer, options = {}) {
         decoding.add(name);
         fs.mkdirSync(BASELINE_DIR, { recursive: true });
         fs.writeFileSync(baselinePath, buffer);
+        recordEnvironment(name);
         console.log(`SKIP visual "${name}": no baseline existed, wrote baselines/${name}.png. ` +
             'Commit it so the next run can compare.');
         return { created: true };
+    }
+
+    // Text rasterisation is not portable, so a baseline only means anything on the platform that
+    // produced it. Say so once per baseline instead of reporting a regression that is really a
+    // different font fallback.
+    const recorded = readEnvironment()[name];
+    if (recorded && recorded !== process.platform && process.env.CMM_REQUIRE_VISUAL !== '1') {
+        if (!skipped.has(name)) {
+            skipped.add(name);
+            console.log(`SKIP visual "${name}": baseline recorded on ${recorded}, running on ` +
+                `${process.platform}. Glyph rasterisation differs per platform; set ` +
+                'CMM_REQUIRE_VISUAL=1 to compare anyway, or CMM_UPDATE_BASELINES=1 to re-record here.');
+        }
+        return { skipped: true };
     }
 
     const expected = fs.readFileSync(baselinePath);

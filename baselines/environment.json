@@ -1,0 +1,17 @@
+{
+  "composer-base": "win32",
+  "composer-inbox-en": "win32",
+  "composer-inbox-zh": "win32",
+  "composer-sketch": "win32",
+  "composer-sketch-annotations": "win32",
+  "composer-surface-breeze-dots": "win32",
+  "composer-surface-cinnabar-dots": "win32",
+  "composer-surface-cinnabar-grid": "win32",
+  "composer-surface-ink-dots": "win32",
+  "composer-surface-ink-grid": "win32",
+  "composer-surface-ink-paper": "win32",
+  "composer-surface-obsidian-dots": "win32",
+  "composer-surface-violet-dots": "win32",
+  "composer-tools": "win32",
+  "writing-result": "win32"
+}

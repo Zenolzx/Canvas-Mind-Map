@@ -33,6 +33,12 @@ jobs:
       - name: Unit checks
         run: npm run test:unit
 
+      # Committed screenshot baselines are recorded on Windows and are not portable: glyph
+      # rasterisation and font fallback differ per OS, and the fixtures ask for Arial, so the
+      # same code produces a different image here. The visual layer reports a loud SKIP for those
+      # baselines instead of a false regression (see scripts/lib/visual.cjs). Every behavioural
+      # browser assertion still runs, as do the property-level guards — render contract, design
+      # tokens, export and layout composition — which do not depend on the host.
       - name: Browser checks
         run: npm run test:browser
         env:
