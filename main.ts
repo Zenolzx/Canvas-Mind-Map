@@ -2,8 +2,8 @@ import { AppearancePicker } from './src/appearance/AppearancePicker';
 import { Menu, moment, Notice, Plugin, PluginSettingTab, TFile, TFolder } from 'obsidian';
 import { ComposerStore } from './src/composer/ComposerStore';
 import { COMPOSER_VIEW, ComposerView, showDrafts, showTemplates } from './src/composer/ComposerView';
-import { around } from 'monkey-around';
-import type { CanvasNode, CanvasView } from './Canvas';
+import { watchCanvasIntegration } from './src/native/DeferredCanvasIntegration';
+import { EnhancedCanvasInterop } from './src/native/EnhancedCanvasInterop';
 import { CanvasMindmap, normalizeMindmapLevels, renderMindmapSettings } from './src/CanvasMindmap';
 import { LAYOUT_LABEL_KEYS, MindmapLayout, MindmapSettings, normalizeAppearancePreset, normalizeBranchColourMode, normalizeMindmapTypeface, normalizeOrganicSettings, normalizeSurfaceMaterial } from './src/settings';
 import { PluginDataStore } from './src/PluginDataStore';
@@ -24,8 +24,10 @@ export default class CanvasMindMapPlugin extends Plugin {
     composerDrafts!: ComposerStore;
     private dataStore!: PluginDataStore;
     private appearanceApplied = new WeakMap<HTMLElement, string>();
+    private enhancedInterop?: EnhancedCanvasInterop;
+    refreshEnhancedCompatibility(): void { this.enhancedInterop?.refresh(); }
     /** Tracks the undocumented Canvas prototype hooks, which can silently fail to install. */
-    private patchState: { total: number; landed: number; stop?: () => void } = { total: 0, landed: 0 };
+    private patchState: { total: number; landed: number } = { total: 0, landed: 0 };
 
     private openAppearance(target: HTMLElement): void {
         const initial = { appearance: this.settings.appearance, surfaceMaterial: this.settings.surfaceMaterial };
@@ -138,65 +140,25 @@ export default class CanvasMindMapPlugin extends Plugin {
             if (file instanceof TFile && supportedSource(file)) menu.addItem(item => item
                 .setTitle(t('以 Organic 模式打开笔记')).setIcon('git-fork').onClick(() => this.openOrganic(file)));
         }));
+        this.enhancedInterop = new EnhancedCanvasInterop(this.app);
+        this.enhancedInterop.refresh();
+        this.register(() => this.enhancedInterop?.close());
         this.mindmap = new CanvasMindmap(this);
         this.mindmap.register();
         this.registerEvent(this.app.workspace.on('file-menu', (menu: Menu) => this.mindmap.addSelectionMenu(menu)));
         this.registerEvent(this.app.workspace.on('editor-menu', (menu: Menu) => this.mindmap.addSelectionMenu(menu)));
-        this.registerLazyPatcher(() => {
-            const view = this.app.workspace.getLeavesOfType('canvas').find(leaf => (leaf.view as CanvasView).canvas?.nodes?.size)?.view as CanvasView | undefined;
-            const node = view?.canvas.nodes.values().next().value;
-            if (!node) return false;
-            const prototype = Object.getPrototypeOf(Object.getPrototypeOf(node));
-            if (!prototype?.showMenu) return false;
-            const feature = this.mindmap;
-            this.register(around(prototype, {
-                showMenu: (next: (menu: Menu, ...args: unknown[]) => unknown) => function(this: CanvasNode, menu: Menu, ...args: unknown[]) {
-                    const result = next.call(this, menu, ...args);
-                    feature.addMenu(menu, this);
-                    return result;
-                },
-            }));
-            return true;
-        });
+        this.registerEvent(this.app.workspace.on('canvas:node-menu', (menu, node) => {
+            this.refreshEnhancedCompatibility(); this.mindmap.addMenu(menu, node);
+        }));
         this.addSettingTab(new MindmapSettingTab(this));
     }
 
     registerLazyPatcher(patch: () => boolean): void {
-        let patched = false;
-        const attempt = () => {
-            if (patched || !patch()) return;
-            patched = true;
-            this.patchState.landed++;
-            if (this.patchState.landed === this.patchState.total) this.stopWatchingPatches();
-        };
         this.patchState.total++;
-        const leafEvent = this.app.workspace.on('active-leaf-change', attempt);
-        const layoutEvent = this.app.workspace.on('layout-change', attempt);
-        this.patchState.stop = () => {
-            this.app.workspace.offref(leafEvent);
-            this.app.workspace.offref(layoutEvent);
-        };
-        this.registerEvent(leafEvent);
-        this.registerEvent(layoutEvent);
-        this.app.workspace.onLayoutReady(() => {
-            attempt();
-            this.stopWatchingPatches();
-            // These patches hook undocumented Obsidian Canvas internals. If a future release
-            // renames one of them the patch simply never lands, which used to make every
-            // Canvas command disappear with no explanation at all.
-            if (this.patchState.landed < this.patchState.total) {
-                console.warn(`Canvas Mind Map: ${this.patchState.total - this.patchState.landed} of ` +
-                    `${this.patchState.total} Obsidian Canvas integration hooks did not install. ` +
-                    'Canvas mind map commands may be unavailable on this Obsidian version.');
-                new Notice(t('Canvas 导图集成未能挂载，部分命令可能不可用。请确认 Obsidian 版本并查看控制台。'), 10000);
-            }
+        watchCanvasIntegration(this, patch, () => { this.patchState.landed++; }, error => {
+            console.error('Canvas Mind Map: Canvas integration failed', error);
+            new Notice(t('Canvas 导图集成未能挂载，部分命令可能不可用。请确认 Obsidian 版本并查看控制台。'), 10000);
         });
-        attempt();
-    }
-
-    private stopWatchingPatches(): void {
-        this.patchState.stop?.();
-        this.patchState.stop = undefined;
     }
 
     async saveSettings(): Promise<void> { await this.dataStore.save(); }

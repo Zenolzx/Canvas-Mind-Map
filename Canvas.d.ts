@@ -1,9 +1,13 @@
-import { ItemView, TFile } from "obsidian"
+import { EventRef, ItemView, Menu, TFile } from "obsidian"
 import type { CanvasData, CanvasEdgeData, CanvasNodeData } from "obsidian/canvas"
 
 export type { AllCanvasNodeData, CanvasData, CanvasEdgeData, CanvasNodeData } from "obsidian/canvas"
 
 declare module "obsidian" {
+  interface Workspace {
+    /** Built-in Canvas event, verified against the running host; absent from public typings. */
+    on(name: 'canvas:node-menu', callback: (menu: Menu, node: CanvasNode) => unknown, ctx?: unknown): EventRef
+  }
   interface MetadataCache {
     getBacklinksForFile(file: TFile): { data: Map<string, unknown[]> }
     getTags(): Record<string, number>

@@ -2,6 +2,9 @@ import { COMPOSER_ZH } from './composer/ComposerStrings';
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
+    '迁移此导图到 Canvas Mind Map': 'Migrate this map to Canvas Mind Map',
+    '旧导图结构不完整或已混合管理，未作修改。': 'The legacy map is incomplete or has mixed ownership. No changes were made.',
+    '导图已迁移，节点、连线和折叠状态已保留。可使用 Canvas 撤销恢复。': 'Map migrated with nodes, edges and fold state preserved. Use Canvas Undo to restore.',
     'SVG · 主题纸面': 'SVG · themed paper', 'PNG · 主题纸面': 'PNG · themed paper',
     '矿物纸面': 'Mineral paper', '深夜石墨': 'Midnight graphite', '雾林': 'Forest mist',
     'Organic：从原笔记刷新': 'Organic: Refresh from source note',

@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),esbuild=require('esbuild');
+const output=esbuild.buildSync({entryPoints:['src/native/DeferredCanvasIntegration.ts'],bundle:true,platform:'node',format:'cjs',write:false});
+let serial=0;const timers=new Map(),events=new Map(),cleanups=[];let layoutReady;
+const sandbox={module:{exports:{}},exports:{},setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id)};
+sandbox.window={setTimeout:sandbox.setTimeout,clearTimeout:sandbox.clearTimeout};
+vm.runInNewContext(output.outputFiles[0].text,sandbox);
+const plugin={app:{workspace:{on:(event,fn)=>{events.set(event,fn);return event;},onLayoutReady:fn=>{layoutReady=fn;}}},register:fn=>cleanups.push(fn),registerEvent:()=>{}};
+let available=false,broken=false,attempts=0,ready=0,failures=0;
+sandbox.module.exports.watchCanvasIntegration(plugin,()=>{attempts++;if(broken)throw Error('Missing host capability');return available;},()=>ready++,()=>failures++);
+layoutReady();assert.equal(ready,0);assert.equal(failures,0,'an unloaded Canvas is pending, not incompatible');
+available=true;for(const fn of [...timers.values()])fn();assert.equal(ready,1,'deferred construction is retried after layout-ready');
+const before=attempts;events.get('window-open')();assert.ok(attempts>before,'a new window is inspected after initial success');assert.equal(ready,1,'readiness counts once');
+events.get('file-open')();events.get('active-leaf-change')();assert.equal(ready,1);
+broken=true;events.get('layout-change')();events.get('layout-change')();assert.equal(failures,1,'the same real failure is reported once');
+broken=false;events.get('layout-change')();broken=true;events.get('layout-change')();assert.equal(failures,2,'recovery resets error deduplication');
+const pending=[...timers.values()];cleanups.forEach(fn=>fn());const end=attempts;
+pending.forEach(fn=>fn());events.get('layout-change')();layoutReady();assert.equal(attempts,end,'unload prevents delayed callbacks from reattaching hooks');assert.equal(timers.size,0);
+console.log('PASS Canvas compatibility: delayed construction, future windows, capability errors, deduplication, recovery and unload');

@@ -1,0 +1,48 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {chromium}=require('./lib/browser.cjs').requireTooling('Canvas compatibility');
+(async()=>{const browser=await chromium.connectOverCDP('http://127.0.0.1:9237');try{
+ const page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('index.html'));
+ const expected=path.resolve('tmp/obsidian-writing-live');assert.equal(await page.evaluate(()=>app.vault.adapter.getBasePath()),expected);
+ for(const file of ['main.js','styles.css','manifest.json'])fs.copyFileSync(file,path.join(expected,'.obsidian/plugins/canvas-mind-map',file));
+ const warnings=[];page.on('console',m=>{if(m.type()==='error'||m.type()==='warning')warnings.push(m.text());});
+ const report=await page.evaluate(async()=>{
+  for(const leaf of app.workspace.getLeavesOfType('canvas'))leaf.detach();
+  await app.plugins.disablePlugin('canvas-mind-map');await app.plugins.enablePlugin('canvas-mind-map');
+  const plugin=app.plugins.plugins['canvas-mind-map'];
+  if(plugin.patchState.landed!==0)throw Error('Canvas hooks should be pending with no Canvas open');
+  await new Promise(r=>setTimeout(r,600));
+  if(document.querySelector('.notice')?.textContent.includes('Canvas 导图集成未能挂载'))throw Error('False startup incompatibility notice');
+  const file=await app.vault.create(`Compatibility-${Date.now()}.canvas`,JSON.stringify({nodes:[{id:'source',type:'text',text:'# Root\n\n## Child A\n\n## Child B',x:0,y:0,width:300,height:200}],edges:[]}));
+  const leaf=app.workspace.getLeaf('tab');await leaf.openFile(file);await new Promise(r=>setTimeout(r,650));
+  const canvas=leaf.view.canvas;
+  if(!Object.hasOwn(canvas,'importData')||!Object.hasOwn(canvas,'requestSave'))throw Error('Deferred Canvas was not integrated');
+  const wrapped=canvas.importData;app.workspace.trigger('layout-change');await new Promise(r=>setTimeout(r,150));
+  if(canvas.importData!==wrapped)throw Error('Canvas was patched twice');
+  class Menu{constructor(){this.items=[];}addItem(fn){const item={setTitle(v){this.title=v;return this;},setIcon(){return this;},setSection(){return this;},setWarning(){return this;},setDisabled(){return this;},setChecked(){return this;},onClick(fn){this.action=fn;return this;},setSubmenu(){return this.child=new Menu();}};fn(item);this.items.push(item);return this;}addSeparator(){return this;}}
+  const menu=new Menu();canvas.nodes.get('source').showMenu(menu);
+  const generation=menu.items.filter(i=>/生成可折叠|Generate collapsible/.test(i.title));if(generation.length!==1)throw Error('Text node menu is missing or duplicated');
+  await plugin.mindmap.generate(canvas,canvas.nodes.get('source'),'title','right');
+  const root=[...canvas.nodes.values()].find(n=>n.getData().canvasMindMap?.depth===0);if(!root)throw Error('No generated root');
+  const managed=new Menu();root.showMenu(managed);const count=managed.items.length;root.showMenu(new Menu());
+  if(!managed.items.some(i=>/展开|Expand/.test(i.title)))throw Error('Managed node menu missing');
+  plugin.mindmap.fold(canvas,root.id,false);await new Promise(r=>setTimeout(r,200));
+  if(!leaf.view.contentEl.querySelector('.cmm-mindmap-hidden'))throw Error('Collapsed nodes are not hidden');
+  canvas.updateSelection(()=>{for(const n of canvas.nodes.values())canvas.selection.add(n);});
+  for(const n of canvas.selection)if(n.nodeEl?.classList.contains('cmm-mindmap-hidden'))throw Error('Hidden node remained selectable');
+  canvas.requestSave();await leaf.view.save();
+  const disk=JSON.parse(await app.vault.read(file));if(disk.nodes.length!==3)throw Error('Fold discarded persistent nodes');
+  const other=app.workspace.getLeaf('tab');await other.openFile(file);await new Promise(r=>setTimeout(r,650));
+  if(!Object.hasOwn(other.view.canvas,'requestFrame'))throw Error('A later Canvas instance was not integrated');
+  if(!other.view.contentEl.querySelector('.cmm-mindmap-hidden'))throw Error('Reopened collapse state was not restored');
+  const note=await app.vault.create(`Compatibility-note-${Date.now()}.md`,'# File source\n\n## File child');
+  const fileNode=other.view.canvas.createFileNode({file:note,pos:{x:600,y:0},size:{width:300,height:200}});
+  const fileMenu=new Menu();fileNode.showMenu(fileMenu);if(fileMenu.items.filter(i=>/生成可折叠|Generate collapsible/.test(i.title)).length!==1)throw Error('File-node menu missing or duplicated');
+  const otherMenu=new Menu();[...other.view.canvas.nodes.values()][0].showMenu(otherMenu);if(!otherMenu.items.length)throw Error('Reopened menu empty');
+  await app.plugins.disablePlugin('canvas-mind-map');
+  if(Object.hasOwn(canvas,'importData')||Object.hasOwn(other.view.canvas,'requestFrame'))throw Error('Unload did not restore inherited methods');
+  await app.plugins.enablePlugin('canvas-mind-map');await new Promise(r=>setTimeout(r,650));
+  return {hooks:app.plugins.plugins['canvas-mind-map'].patchState,nodes:disk.nodes.length,menuItems:count,lateCanvas:true,unloadRestored:true};
+ });
+ assert.deepEqual(warnings.filter(m=>/Canvas Mind Map:.*(?:failed|did not install)/.test(m)),[]);
+ console.log('PASS real Obsidian Canvas compatibility:',JSON.stringify(report));
+}finally{await browser.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

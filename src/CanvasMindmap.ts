@@ -4,6 +4,7 @@ import type { MindMapModel } from './core/MindMapModel';
 import { readSourceDocument, supportedSource } from './formats/SourceFormats';
 import { NativeCanvasRenderer } from './native/NativeCanvasRenderer';
 import { applyBranchAppearance } from './native/NativeAppearance';
+import { enhancedCanvasMeta, migrateEnhancedCanvasMap } from './native/EnhancedCanvasMigration';
 import { FuzzySuggestModal, ItemView, Menu, MenuItem, Modal, Notice, Setting } from 'obsidian';
 import { around } from 'monkey-around';
 import type { AllCanvasNodeData, CanvasData, NodeSide } from 'obsidian/canvas';
@@ -66,54 +67,63 @@ export class CanvasMindmap {
             for (const node of this.observers.keys()) this.unobserve(node);
             this.eachCanvas(canvas => this.clearDisplay(canvas));
         });
+        const integrated = new Map<Canvas, () => void>();
+        this.plugin.register(() => { for (const remove of integrated.values()) remove(); integrated.clear(); });
         this.plugin.registerLazyPatcher(() => {
-            const canvas = this.plugin.app.workspace.getLeavesOfType('canvas')
-                .map(leaf => (leaf.view as CanvasView).canvas).find(Boolean);
-            if (!canvas) return false;
-            const prototype = Object.getPrototypeOf(canvas);
-            if (!prototype.importData || !prototype.requestFrame || !prototype.updateSelection) return false;
-            const feature = this;
-            this.plugin.register(around(prototype, {
-                importData: (next: Canvas['importData']) => function(this: Canvas, data: CanvasData, clear?: boolean) {
-                    const result = next.call(this, data, clear);
-                    feature.render(this, false);
-                    feature.schedule(this);
-                    return result;
-                },
-                requestFrame: (next: Canvas['requestFrame']) => function(this: Canvas) {
-                    next.call(this);
-                    feature.schedule(this);
-                },
-                requestSave: (next: Canvas['requestSave']) => function(this: Canvas, history?: boolean) {
-                    // Native auto-fit saves repeatedly while measuring. Keep it in the
-                    // originating operation's undo step instead of adding resize steps.
-                    const focus = feature.reading.get(this);
-                    if (!focus?.compact || feature.projecting.has(this)) return next.call(this, feature.fitting.has(this) ? false : history);
-                    const projection = JSON.parse(JSON.stringify(this.getData())) as CanvasData;
-                    const persistent = feature.persistentData(this, JSON.parse(JSON.stringify(this.getData())) as CanvasData, false);
-                    feature.projecting.add(this);
-                    try {
-                        this.importData(persistent);
-                        const result = next.call(this, feature.fitting.has(this) ? false : history);
-                        // Keep native/manual movement visible for this focus session;
-                        // only the restored geometry was handed to Canvas persistence.
-                        this.importData(projection);
+            const canvases = this.plugin.app.workspace.getLeavesOfType('canvas')
+                .map(leaf => (leaf.view as CanvasView).canvas).filter((canvas): canvas is Canvas => !!canvas);
+            const live = new Set(canvases);
+            for (const [canvas, remove] of integrated) if (!live.has(canvas)) { remove(); integrated.delete(canvas); }
+            for (const canvas of canvases) {
+                if (integrated.has(canvas)) continue;
+                const missing = ['importData', 'requestFrame', 'requestSave', 'updateSelection'].filter(name => typeof (canvas as unknown as Record<string, unknown>)[name] !== 'function');
+                if (missing.length) throw new Error('Canvas methods unavailable: ' + missing.join(', '));
+                const feature = this;
+                // Wrap each live instance. No fixed prototype depth or shared global class is assumed.
+                const remove = around(canvas, {
+                    importData: (next: Canvas['importData']) => function(this: Canvas, data: CanvasData, clear?: boolean) {
+                        const result = next.call(this, data, clear);
+                        feature.render(this, false);
+                        feature.schedule(this);
                         return result;
-                    } finally { feature.projecting.delete(this); }
-                },
-                updateSelection: (next: Canvas['updateSelection']) => function(this: Canvas, callback: () => void) {
-                    return next.call(this, () => {
-                        callback();
-                        const hidden = feature.displayState(this, this.getData()).hidden;
-                        // Native selection also contains edges, despite the older Canvas typings.
-                        for (const item of this.selection as Set<CanvasNode | CanvasEdge>) {
-                            if (feature.isHidden(item, hidden)) this.selection.delete(item as CanvasNode);
-                        }
-                    });
-                },
-            }));
-            this.eachCanvas(current => this.schedule(current));
-            return true;
+                    },
+                    requestFrame: (next: Canvas['requestFrame']) => function(this: Canvas) {
+                        feature.plugin.refreshEnhancedCompatibility?.();
+                        next.call(this);
+                        feature.schedule(this);
+                    },
+                    requestSave: (next: Canvas['requestSave']) => function(this: Canvas, history?: boolean) {
+                        // Native auto-fit saves repeatedly while measuring. Keep it in the
+                        // originating operation's undo step instead of adding resize steps.
+                        const focus = feature.reading.get(this);
+                        if (!focus?.compact || feature.projecting.has(this)) return next.call(this, feature.fitting.has(this) ? false : history);
+                        const projection = JSON.parse(JSON.stringify(this.getData())) as CanvasData;
+                        const persistent = feature.persistentData(this, JSON.parse(JSON.stringify(this.getData())) as CanvasData, false);
+                        feature.projecting.add(this);
+                        try {
+                            this.importData(persistent);
+                            const result = next.call(this, feature.fitting.has(this) ? false : history);
+                            // Keep native/manual movement visible for this focus session;
+                            // only the restored geometry was handed to Canvas persistence.
+                            this.importData(projection);
+                            return result;
+                        } finally { feature.projecting.delete(this); }
+                    },
+                    updateSelection: (next: Canvas['updateSelection']) => function(this: Canvas, callback: () => void) {
+                        return next.call(this, () => {
+                            callback();
+                            const hidden = feature.displayState(this, this.getData()).hidden;
+                            // Native selection also contains edges, despite the older Canvas typings.
+                            for (const item of this.selection as Set<CanvasNode | CanvasEdge>) {
+                                if (feature.isHidden(item, hidden)) this.selection.delete(item as CanvasNode);
+                            }
+                        });
+                    },
+                });
+                integrated.set(canvas, remove);
+                this.schedule(canvas);
+            }
+            return canvases.length > 0;
         });
         this.plugin.registerEvent(this.plugin.app.workspace.on('layout-change', () => {
             for (const node of this.observers.keys()) if (!node.nodeEl.isConnected) this.unobserve(node);
@@ -205,6 +215,10 @@ export class CanvasMindmap {
             entry.setTitle(title).onClick(() => this.run(action)));
         if (!state) {
             if (canvas.readonly || !this.isSource(node)) return;
+            if (enhancedCanvasMeta(node.getData())) {
+                item(t('迁移此导图到 Canvas Mind Map'), () => this.migrateEnhancedMap(canvas, node.id));
+                return;
+            }
             item(t('生成可折叠思维导图'), () => this.generationDialog(canvas, node));
             return;
         }
@@ -358,7 +372,22 @@ export class CanvasMindmap {
             },
         });
     }
+    private migrateEnhancedMap(canvas: Canvas, id: string): void {
+        if (canvas.readonly || this.stopped) return;
+        let data: CanvasData;
+        try { data = migrateEnhancedCanvasMap(this.readData(canvas), id); }
+        catch { new Notice(t('旧导图结构不完整或已混合管理，未作修改。')); return; }
+        const targetRoot = meta(data.nodes.find(node => node.id === id)!)!.rootId;
+        const converted = new Set(treeNodes(data, targetRoot).map(node => node.id));
+        this.commit(canvas, data);
+        for (const node of canvas.nodes.values()) if (converted.has(node.id)) {
+            node.nodeEl.classList.remove('ec-mindmap-hidden');
+            node.nodeEl.querySelector('.ec-mindmap-toggle')?.remove();
+        }
+        new Notice(t('导图已迁移，节点、连线和折叠状态已保留。可使用 Canvas 撤销恢复。'));
+    }
     private generationDialog(canvas: Canvas, node: CanvasNode): void {
+        if (enhancedCanvasMeta(node.getData())) { this.migrateEnhancedMap(canvas, node.id); return; }
         const dialog = new Modal(this.plugin.app);
         let mode = this.plugin.settings.lastMode, layout = this.plugin.settings.lastLayout;
         dialog.titleEl.setText(t('生成可折叠思维导图'));
