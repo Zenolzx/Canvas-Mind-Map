@@ -37,14 +37,14 @@ export interface MindmapSettings {
     compactFocus: boolean;
     language: LanguageSetting;
 }
-export type AppearancePreset = 'obsidian' | 'ink' | 'cinnabar' | 'breeze' | 'violet';
+export type AppearancePreset = 'obsidian' | 'ink' | 'slate' | 'cinnabar' | 'breeze' | 'violet';
 export function normalizeAppearancePreset(value: unknown): AppearancePreset {
     if (value === 'graphite') return 'ink';
     if (value === 'theme') return 'obsidian';
     if (value === 'wash' || value === 'whale') return 'breeze';
     if (value === 'gold') return 'cinnabar';
     // `white` was a second "no override" option beside `obsidian`; it no longer exists.
-    return value === 'cinnabar' || value === 'breeze' || value === 'violet' || value === 'ink'
+    return value === 'slate' || value === 'cinnabar' || value === 'breeze' || value === 'violet' || value === 'ink'
         ? value : 'obsidian';
 }
 

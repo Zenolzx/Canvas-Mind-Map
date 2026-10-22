@@ -86,7 +86,7 @@ const isPresetBlock = selector =>
     const required = ['--cmm-paper', '--cmm-paper-rgb', '--cmm-paper-raised', '--cmm-toolbar', '--cmm-ink',
         '--cmm-muted', '--cmm-faint', '--cmm-branch', '--cmm-rule', '--cmm-accent', '--cmm-accent-soft',
         '--cmm-action', '--cmm-action-text', '--cmm-texture'];
-    const presets = ['ink', 'cinnabar', 'breeze', 'violet'];
+    const presets = ['ink', 'slate', 'cinnabar', 'breeze', 'violet'];
     for (const preset of presets) {
         for (const dark of [false, true]) {
             const prefix = dark ? '.theme-dark ' : '';

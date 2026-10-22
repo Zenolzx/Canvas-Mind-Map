@@ -12,7 +12,8 @@ const {chromium}=requireTooling('Composer browser');
   assert.equal(await page.locator('.cmm-composer-body').isVisible(),false);
   assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),false);
   assert.equal(await page.locator('.cmm-composer-search').isVisible(),false);
-  assert.equal(await page.locator('.cmm-composer-toolbar > button').count(),7);
+  assert.equal(await page.getByRole('group',{name:'Workspace mode'}).getByRole('button').count(),3);
+  assert.equal(await page.getByRole('button',{name:'Workspace appearance',exact:true}).isVisible(),true);
   await page.keyboard.press('Control+Enter');assert.equal(await page.locator('.cmm-composer-body').isVisible(),true);
   await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'show');
   await page.getByRole('button',{name:'Pin',exact:true}).click();assert.equal((await state()).panel,'auto');
@@ -82,12 +83,12 @@ const {chromium}=requireTooling('Composer browser');
    // repaint happen in between and made the recorded baseline disagree with the saved image.
    await page.mouse.move(4, 4);
    await page.waitForTimeout(60);
-   const shot = await page.screenshot({path:`tmp/composer-browser/surface-${preset}-${material}.png`});
+   const shot = await page.screenshot({animations: 'disabled', path:`tmp/composer-browser/surface-${preset}-${material}.png`});
    expectScreenshot(`composer-surface-${preset}-${material}`, shot);
   }
   await page.mouse.move(4, 4);
   await page.waitForTimeout(60);
-  const base = await page.screenshot({path:'tmp/composer-browser/composer.png'});
+  const base = await page.screenshot({animations: 'disabled', path:'tmp/composer-browser/composer.png'});
   expectScreenshot('composer-base', base);
   await page.getByRole('button',{name:'Create Note',exact:true}).click();
   const folderSelect=page.getByRole('combobox',{name:'Location (existing vault folder)'});

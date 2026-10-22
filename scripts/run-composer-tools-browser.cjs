@@ -33,7 +33,8 @@ try{
  await page.locator('.cmm-composer-idea-input').fill('Temporary');await page.keyboard.press('Escape');assert.equal((await state()).unsorted[0].title,'Later research');
  await page.keyboard.press('F2');await page.locator('.cmm-composer-idea-input').fill('Later research');await page.keyboard.press('Enter');assert.equal((await state()).unsorted.length,1);
  await page.locator('.cmm-composer-stage').focus();await page.keyboard.press('Enter');await page.keyboard.press('Escape');await page.waitForTimeout(600);assert.equal(await page.evaluate(()=>window.composerTest.getDisk()[window.composerTest.view.draft.draftId].unsorted.length),1);
- await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Fit to view',exact:true}).click();await drag(page.locator('.cmm-composer-unsorted-list').getByRole('button',{name:'Later research',exact:true}),node('Project Plan'));assert.equal((await state()).unsorted.length,0);assert.equal((await state()).root.children.at(-1).type,'heading');
+ await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Fit to view',exact:true}).click();await drag(page.locator('.cmm-composer-unsorted-list').getByRole('button',{name:'Later research',exact:true}),node('Project Plan'));assert.equal((await state()).unsorted.length,0);assert.equal((await state()).root.children.at(-1).type,'heading');assert.equal((await state()).mode,'sketch');
+ await page.getByRole('button',{name:'Structured',exact:true}).click();
  await drag(node('Later research'),page.locator('.cmm-composer-unsorted-list'));assert.equal((await state()).unsorted.length,1);
  await menu('Document properties','Metadata and info');await page.getByRole('textbox',{name:'Frontmatter YAML'}).fill('"scalar"');await page.getByRole('button',{name:'Save properties',exact:true}).click();assert.match(await page.locator('[role="alert"]').textContent(),/mapping/);
  await page.getByRole('textbox',{name:'Frontmatter YAML'}).fill('status: draft');await page.getByRole('button',{name:'Save properties',exact:true}).click();assert.equal((await state()).frontmatter,'status: draft');
@@ -41,7 +42,7 @@ try{
  await page.getByRole('combobox',{name:'Unsorted export policy'}).selectOption('exclude');await page.getByRole('combobox',{name:'Idea export policy'}).selectOption('bullets');
  const preview=await page.getByRole('textbox',{name:'Markdown preview',exact:true}).inputValue();assert.match(preview,/^---\nstatus: draft\n---/);assert.match(preview,/- Milestones\n\n  Explore dependencies/);assert.match(preview,/- \[x\] Risks/);assert.ok(!preview.includes('Later research'));
  await page.mouse.move(4,4);await page.waitForTimeout(60);
- const toolsShot=await page.screenshot({path:'tmp/composer-browser/composer-tools.png'});
+ const toolsShot=await page.screenshot({animations: 'disabled', path:'tmp/composer-browser/composer-tools.png'});
  expectScreenshot('composer-tools', toolsShot);
  await page.getByRole('button',{name:'Create',exact:true}).click();await page.waitForFunction(()=>window.composerTest.getHandoff());assert.equal(await page.evaluate(()=>window.composerTest.contents.get('Projects/Project Plan.md')),preview);
  assert.ok(await page.evaluate(()=>Object.values(window.composerTest.store.data).some(d=>d.unsorted?.[0]?.title==='Later research')));

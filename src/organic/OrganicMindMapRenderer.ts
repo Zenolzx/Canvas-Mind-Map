@@ -11,8 +11,8 @@ import { EYEBROW_SIZE, EYEBROW_TRACKING, LINE_HEIGHT } from '../design/type';
  * would silently vanish from (or change in) the exported file. Attributes are the single
  * source of truth; CSS only layers interaction and appearance-preset overrides on top.
  *
- * Cards carry no border: at hairline weight a box around every card reads as graph paper and
- * fights the surface structure. Separation comes from fill contrast and whitespace.
+ * Root and first-level cards have distinct hierarchy. Theme-aware boundaries and branch
+ * washes are attributes too, so a stylesheet-free export retains the same visual structure.
  */
 export interface OrganicSurfaceStyle {
     cardFill: string; rootFill: string; cardStroke: string; rootStroke: string;
@@ -23,11 +23,11 @@ export interface OrganicSurfaceStyle {
     eyebrowSize: number; eyebrowTracking: number;
 }
 export const DEFAULT_SURFACE: OrganicSurfaceStyle = {
-    cardFill: 'none',
-    rootFill: 'none',
-    cardStroke: 'none',
-    rootStroke: 'none',
-    cardStrokeWidth: 0, rootStrokeWidth: 0,
+    cardFill: 'var(--cmm-node-fill, var(--cmm-paper-raised))',
+    rootFill: 'var(--cmm-paper-raised)',
+    cardStroke: 'var(--cmm-rule)',
+    rootStroke: 'var(--cmm-accent)',
+    cardStrokeWidth: .8, rootStrokeWidth: 1.4,
     label: 'var(--cmm-ink, var(--text-normal))',
     muted: 'var(--cmm-muted, var(--text-muted))',
     branch: 'var(--cmm-branch, var(--text-muted))',
@@ -136,8 +136,15 @@ export class OrganicMindMapRenderer {
             heading.append(svgElement(document, 'rect', { width: node.width, height: node.height,
                 rx: Math.min(surface.radius, node.height / 2), class: 'cmm-organic-hitbox',
                 fill: root ? surface.rootFill : surface.cardFill,
-                stroke: root ? surface.rootStroke : 'none',
+                stroke: root ? surface.rootStroke : surface.cardStroke,
                 'stroke-width': root ? surface.rootStrokeWidth : surface.cardStrokeWidth }));
+            if ((root || node.depth === 1) && surface.cardStrokeWidth > 0) {
+                heading.append(svgElement(document, 'rect', { width: node.width, height: node.height,
+                    rx: Math.min(surface.radius, node.height / 2), fill: root ? surface.rootStroke : node.color,
+                    'fill-opacity': root ? .09 : .075, 'pointer-events': 'none', class: 'cmm-organic-branch-wash' }));
+                if (!root) heading.append(svgElement(document, 'rect', { x: 0, y: 9, width: 3,
+                    height: Math.max(8, node.height - 18), rx: 1.5, fill: node.color, 'pointer-events': 'none', class: 'cmm-organic-branch-mark' }));
+            }
             const blockHeight = node.lines.length * node.fontSize * LINE_HEIGHT;
             // A root is a sheet header: a small-caps label, the title, and a hairline rule. The
             // label gets its own band so the title block stays optically centred below it.
@@ -159,7 +166,7 @@ export class OrganicMindMapRenderer {
                 span.textContent = line; text.append(span);
             });
             heading.append(text);
-            if (root) heading.append(svgElement(document, 'line', { x1: 0, x2: node.width, y1: node.height - 1.5,
+            if (root) heading.append(svgElement(document, 'line', { x1: 14, x2: node.width - 14, y1: node.height - 1.5,
                 y2: node.height - 1.5, stroke: surface.rule, 'stroke-width': 1, class: 'cmm-organic-head-rule' }));
             const count = actions.writingCounts?.get(node.id);
             if (count !== undefined) {

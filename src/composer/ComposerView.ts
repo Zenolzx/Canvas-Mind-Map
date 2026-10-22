@@ -1,3 +1,4 @@
+import { AppearancePicker } from '../appearance/AppearancePicker';
 import { ct } from '../i18n';
 import { App, ItemView, Menu, Modal, Notice, parseYaml, Platform, Scope, setIcon, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { OrganicLayoutEngine, OrganicLayoutResult } from '../organic/OrganicLayoutEngine';
@@ -10,7 +11,7 @@ import { ComposerStore } from './ComposerStore';
 import { COMPOSER_TEMPLATES, composerProjection, deleteSelection, draftStatistics, duplicateDraft, fromTemplate, organizeSelection, outlineMarkdown, SearchScope, searchDraft } from './ComposerTools';
 import { DropHit, DropTarget, hitDrop, plainPreview, transferNodes } from './ComposerInteraction';
 import { emptySketch, FreeNote } from './ComposerModel';
-import { paintSketch, paintSketchNoteMove, paintSketchPreview, sketchBranchColor, sketchId, sketchLayout, SKETCH_NOTE_SIZE } from './ComposerSketch';
+import { paintSketch, paintSketchNoteMove, paintSketchPreview, settleSketchPositions, sketchBranchColor, sketchId, sketchLayout, SKETCH_NOTE_SIZE } from './ComposerSketch';
 import { RADIUS } from '../design/geometry';
 import type { AppearancePreset, BranchColourMode } from '../settings';
 
@@ -47,6 +48,7 @@ export class ComposerView extends ItemView {
     private query = ''; private searchScope: SearchScope = 'titles'; private searchIndex = 0;
     private documentButton!: HTMLButtonElement; private ideasButton!: HTMLButtonElement; private contextBar!: HTMLElement; private emptyHint!: HTMLElement; private pinButton!: HTMLButtonElement; private interacted = false;
     private selectionAnchor?: string;
+    private writingButton!: HTMLButtonElement; private sketchModeButton!: HTMLButtonElement; private zoomLabel!: HTMLButtonElement;
     private modeButton!: HTMLButtonElement; private arrangeButton!: HTMLButtonElement;
     private sketchTool: 'select' | 'link' | 'arrow' | 'ellipse' | 'highlight' | 'text' = 'select';
     private suppressSketchClick = false;
@@ -59,7 +61,7 @@ export class ComposerView extends ItemView {
     }
     constructor(leaf: WorkspaceLeaf, private store: ComposerStore, private appearance: () => AppearancePreset = () => 'obsidian',
         private applyAppearance?: (element: HTMLElement) => void,
-        private branchColour: () => BranchColourMode = () => 'palette') { super(leaf); }
+        private branchColour: () => BranchColourMode = () => 'palette', private showAppearance?: (target: HTMLElement) => void) { super(leaf); }
     getViewType(): string { return COMPOSER_VIEW; }
     getDisplayText(): string { return `${this.draft.root.title || ct('Untitled')} · Composer`; }
     getIcon(): string { return 'file-plus-2'; }
@@ -75,6 +77,7 @@ export class ComposerView extends ItemView {
         // A different draft has different node ids, so the carried assignment no longer describes
         // anything on screen.
         this.branchStyles = {};
+        this.result = undefined;
         this.initialized = true; this.store.put(this.draft);
         this.render();
         if (this.draft.viewport) {
@@ -96,22 +99,24 @@ export class ComposerView extends ItemView {
         this.scope.register(['Mod'], 'f', event => { if ((event.target as Element)?.closest?.('input, textarea')) return true; this.openSearch(); return false; });
         for (const [modifiers, key] of [[['Mod'], 'z'], [['Mod', 'Shift'], 'z'], [['Mod'], 'Enter']] as const)
             this.scope.register([...modifiers], key, event => { if ((event.target as Element)?.closest?.('input, textarea') && event.target !== this.body) return true; this.key(event); return false; });
-        const toolbar = this.contentEl.createDiv({ cls: 'cmm-composer-toolbar' });
-        this.documentButton = this.button(toolbar, ct('Untitled'), () => { this.select(this.draft.root.id); this.rename(false); });
+        const toolbar = this.contentEl.createDiv({ cls: 'cmm-composer-toolbar', attr: { role: 'toolbar', 'aria-label': ct('Document tools') } });
+        const identity = toolbar.createDiv({ cls: 'cmm-workspace-identity' });
+        const brand = identity.createSpan({ cls: 'cmm-workspace-mark', attr: { 'aria-hidden': 'true' } }); setIcon(brand, 'workflow');
+        this.documentButton = this.button(identity, ct('Untitled'), () => { this.select(this.draft.root.id); this.rename(false); });
         this.documentButton.classList.add('cmm-composer-document-name');
-        this.modeButton = this.button(toolbar, '', () => {
-            if (this.draft.mode === 'sketch') {
-                this.selectedNote = undefined; this.selectedAnnotation = undefined; this.selectedLink = undefined;
-                this.sketchTool = 'select'; this.linkStart = undefined;
-            }
-            this.change(draft => { draft.mode = draft.mode === 'sketch' ? 'structured' : 'sketch'; }, '', true);
-        });
+        const modes = toolbar.createDiv({ cls: 'cmm-workspace-modes', attr: { role: 'group', 'aria-label': ct('Workspace mode') } });
+        this.modeButton = this.button(modes, ct('Structured'), () => this.setWorkspaceMode('structured'));
         this.modeButton.classList.add('cmm-composer-mode');
-        this.arrangeButton = this.button(toolbar, ct('Arrange layout'), () => this.arrangeSketch());
-        const searchButton = this.button(toolbar, '', () => this.openSearch()); this.iconButton(searchButton, 'search', ct('Search'));
-        const viewButton = this.button(toolbar, '', event => this.viewMenu(event)); this.iconButton(viewButton, 'sliders-horizontal', ct('View'));
-        const more = this.button(toolbar, '', event => this.documentMenu(event)); setIcon(more, 'ellipsis'); more.setAttribute('aria-label', ct('More'));
-        this.button(toolbar, ct('Create Note'), () => this.createNote()).addClass('mod-cta');
+        this.modeButton.setAttribute('aria-label', ct('Structured'));
+        this.writingButton = this.button(modes, ct('Writing'), () => { this.setWorkspaceMode('structured'); this.openBody(); });
+        this.sketchModeButton = this.button(modes, ct('Sketch'), () => this.setWorkspaceMode('sketch'));
+        const actions = toolbar.createDiv({ cls: 'cmm-workspace-actions' });
+        this.arrangeButton = this.button(actions, ct('Arrange layout'), () => this.arrangeSketch()); this.arrangeButton.classList.add('cmm-composer-arrange');
+        const searchButton = this.button(actions, '', () => this.openSearch()); this.iconButton(searchButton, 'search', ct('Search'));
+        const viewButton = this.button(actions, '', event => this.viewMenu(event)); this.iconButton(viewButton, 'sliders-horizontal', ct('View'));
+        const appearance = this.button(actions, '', () => this.openAppearancePicker()); this.iconButton(appearance, 'palette', ct('Workspace appearance'));
+        const more = this.button(actions, '', event => this.documentMenu(event)); this.iconButton(more, 'ellipsis', ct('More'));
+        this.button(actions, ct('Create Note'), () => this.createNote()).addClass('mod-cta');
         this.searchBar = this.contentEl.createDiv({ cls: 'cmm-composer-search' }); this.searchBar.hidden = true;
         this.searchInput = this.searchBar.createEl('input', { type: 'search', attr: { placeholder: ct('Search document and unsorted ideas'), 'aria-label': ct('Search Composer') } });
         const scope = this.searchBar.createEl('select', { attr: { 'aria-label': ct('Search scope') } });
@@ -135,6 +140,16 @@ export class ComposerView extends ItemView {
         this.stage = this.split.createDiv({ cls: 'cmm-composer-stage', attr: { tabindex: '0', 'aria-label': ct('Mind map. Enter adds a section, Tab adds a child.') } });
         this.svg = svgElement(this.contentEl.ownerDocument, 'svg', { class: 'cmm-organic-svg', width: '100%', height: '100%' });
         this.scene = svgElement(this.contentEl.ownerDocument, 'g'); this.svg.append(this.scene); this.stage.append(this.svg);
+        const dock = this.stage.createDiv({ cls: 'cmm-canvas-dock', attr: { role: 'toolbar', 'aria-label': ct('Canvas tools') } });
+        for (const [icon, label, run] of [
+            ['plus', 'Add section', () => this.add(false)], ['corner-down-right', 'Add child', () => this.add(true)],
+            ['panel-right', 'Edit body', () => this.openBody()],
+        ] as const) { const b = this.button(dock, '', run); this.iconButton(b, icon, ct(label)); }
+        const zoom = this.stage.createDiv({ cls: 'cmm-canvas-zoom', attr: { role: 'group', 'aria-label': ct('Zoom controls') } });
+        const minus = this.button(zoom, '', () => this.zoom(.8)); this.iconButton(minus, 'minus', ct('Zoom out'));
+        this.zoomLabel = this.button(zoom, '100%', () => this.zoom(1 / this.viewport.scale)); this.zoomLabel.setAttribute('aria-label', ct('Reset zoom'));
+        const plus = this.button(zoom, '', () => this.zoom(1.25)); this.iconButton(plus, 'plus', ct('Zoom in'));
+        const fit = this.button(zoom, '', () => this.fit()); this.iconButton(fit, 'scan', ct('Fit to view'));
         this.sketchTools = this.stage.createDiv({ cls: 'cmm-composer-sketch-tools', attr: { role: 'toolbar', 'aria-label': ct('Sketch tools') } });
         this.button(this.sketchTools, ct('Free note'), () => this.createFreeNote(this.canvasPoint(this.svg.getBoundingClientRect().left + this.svg.clientWidth / 2, this.svg.getBoundingClientRect().top + this.svg.clientHeight / 2)));
         for (const [tool, label] of [['select', 'Select'], ['link', 'Connect'], ['arrow', 'Arrow'], ['ellipse', 'Circle'], ['highlight', 'Highlight'], ['text', 'Text note']] as const) {
@@ -160,7 +175,15 @@ export class ComposerView extends ItemView {
         this.pinButton = this.button(inspectorActions, ct('Pin'), () => { this.draft.panel = this.draft.panel === 'show' ? 'auto' : 'show'; this.applyPanel(); this.remember(); });
         this.button(inspectorActions, ct('Close Body'), () => { this.autoPanel = false; this.draft.panel = 'hide'; this.applyPanel(); this.remember(); this.stage.focus(); });
         this.ideasButton = this.button(this.stage, ct('Ideas'), () => { this.drawerOpen = !this.drawerOpen; this.renderDrawer(); }); this.ideasButton.classList.add('cmm-composer-ideas-entry');
-        this.emptyHint = this.stage.createDiv({ cls: 'cmm-composer-empty-hint', text: ct('Enter to add a section') });
+        this.emptyHint = this.stage.createDiv({ cls: 'cmm-composer-empty-hint' });
+        this.emptyHint.createSpan({ cls: 'cmm-empty-eyebrow', text: ct('A little space for a big idea') });
+        this.emptyHint.createEl('strong', { text: ct('Start with a thought. Give it shape.') });
+        const emptyActions = this.emptyHint.createDiv({ cls: 'cmm-empty-actions' });
+        this.button(emptyActions, ct('Add first section'), () => this.add(false)).addClass('mod-cta');
+        this.button(emptyActions, ct('Use a template'), () => showTemplates(this.app, draft => {
+            this.store.put(draft); void this.setState({ draftId: draft.draftId }, { history: false });
+        }));
+        this.emptyHint.createSpan({ cls: 'cmm-empty-shortcuts', text: ct('Enter adds a section · Tab adds a child') });
         this.contextBar = this.stage.createDiv({ cls: 'cmm-composer-context', attr: { 'aria-label': ct('Node actions'), role: 'toolbar' } });
         const nodeMore = this.button(this.contextBar, '', event => this.nodeMenu(event)); setIcon(nodeMore, 'ellipsis'); nodeMore.setAttribute('aria-label', ct('Node menu'));
         this.bodyPreview = this.button(this.stage, ct('Add body…'), () => this.openBody());
@@ -171,7 +194,7 @@ export class ComposerView extends ItemView {
             if (this.selectedNote) this.change(draft => { const note = draft.sketch?.notes.find(n => n.id === this.selectedNote); if (note) note.body = text; }, `note-body:${this.selectedNote}`, false);
             else this.change(draft => { this.node(id, draft).body = text; }, `body:${id}`, false);
         };
-        this.status = this.contentEl.createDiv({ cls: 'cmm-composer-status' });
+        this.status = identity.createDiv({ cls: 'cmm-composer-status', attr: { role: 'status' } });
         this.surfaceCleanups.push(this.store.subscribe(() => this.updateStatus()));
         this.listen(this.contentEl, 'keydown', event => this.key(event));
         // Composer owns structure shortcuts even when keyboard focus is on an SVG heading.
@@ -182,10 +205,21 @@ export class ComposerView extends ItemView {
             const id = this.idAt(event.target); if (id) { this.select(id); this.rename(false); } else if (this.draft.mode === 'sketch' && (event.target as Element).closest('svg')) this.createFreeNote(this.canvasPoint(event.clientX, event.clientY)); });
         this.listen(this.stage, 'pointerdown', event => { if ((event.target as Element).closest('svg')) this.draft.mode === 'sketch' ? this.sketchPointer(event) : this.pointer(event); });
         this.listen(this.stage, 'click', event => { if (this.suppressSketchClick && (event.target as Element).closest('svg')) { this.suppressSketchClick = false; event.preventDefault(); event.stopPropagation(); return; } if (this.draft.mode === 'sketch' && this.sketchTool === 'link' && (this.idAt(event.target) || this.noteAt(event.target))) { event.preventDefault(); event.stopPropagation(); } }, true);
-        this.listen(this.stage, 'dragover', event => { if (this.draft.mode === 'sketch' && event.dataTransfer?.types.includes('application/x-cmm-idea')) event.preventDefault(); });
-        this.listen(this.stage, 'drop', event => { if (this.draft.mode !== 'sketch') return; const id = event.dataTransfer?.getData('application/x-cmm-idea');
-            const idea = entries(this.draft, true).find(e => e.unsorted && e.node.id === id)?.node; if (!idea) return;
-            event.preventDefault(); this.createFreeNote(this.canvasPoint(event.clientX, event.clientY), idea.title, idea.body, id, false); });
+        this.listen(this.stage, 'dragover', event => { if (event.dataTransfer?.types.includes('application/x-cmm-idea')) event.preventDefault(); });
+        this.listen(this.stage, 'drop', event => {
+            const id = event.dataTransfer?.getData('application/x-cmm-idea');
+            if (!id || !entries(this.draft, true).some(entry => entry.unsorted && entry.node.id === id)) return;
+            event.preventDefault();
+            const target = this.idAt(event.target);
+            const point = this.canvasPoint(event.clientX, event.clientY);
+            this.change(draft => {
+                transferNodes(draft, [id], { target: target && target !== id ? target : draft.root.id, position: 'child' });
+                draft.mode = 'sketch'; draft.sketch ??= emptySketch();
+                draft.sketch.positions[id] = { x: point.x - 55, y: point.y - 25 };
+                draft.selection = id; draft.selections = [id];
+            }, '', true, false);
+            this.stage.focus();
+        });
         this.listen(this.stage, 'contextmenu', event => { const id = this.noteAt(event.target); if (!id) return; event.preventDefault(); this.selectNote(id);
             const menu = new Menu(); menu.addItem(item => item.setTitle(ct('Rename')).onClick(() => this.renameNote()));
             menu.addItem(item => item.setTitle(ct('Convert to heading')).onClick(() => this.convertNote(id)));
@@ -256,11 +290,15 @@ export class ComposerView extends ItemView {
         const matches = searchDraft(this.draft, this.query, this.searchScope);
         this.searchIndex = matches.length ? Math.min(this.searchIndex, matches.length - 1) : 0;
         const projection = composerProjection(this.draft, matches[this.searchIndex]);
-        const automatic = this.engine.layout(projection.model, { style: this.draft.layout, fontScale: this.draft.layout === 'compact-organic' ? .72 : .8, branchWidth: 1.8,
+        const automatic = this.engine.layout(projection.model, { style: this.draft.layout, fontScale: this.draft.layout === 'compact-organic' ? .88 : 1, branchWidth: 2.4,
             collapsed: projection.collapsed, branchStyles: this.branchStyles, referenceModel: projection.reference,
             measureText: (text, size, weight) => { context.font = `${weight} ${size}px ${this.measureFamily}`; return context.measureText(text).width; } });
         if (automatic.branchStyles) this.branchStyles = automatic.branchStyles;
-        const next = this.draft.mode === 'sketch' ? sketchLayout(automatic, this.draft.sketch ?? emptySketch()) : automatic;
+        if (this.draft.mode === 'sketch') {
+            this.draft.sketch ??= emptySketch();
+            settleSketchPositions(automatic, this.draft.sketch, this.result);
+        }
+        const next = this.draft.mode === 'sketch' ? sketchLayout(automatic, this.draft.sketch!) : automatic;
         const current = next.nodes.find(n => n.id === anchorId);
         if (anchor && old && current) this.viewport.pan((old.x - current.x) * this.viewport.scale, (old.y - current.y) * this.viewport.scale);
         const palette = this.branchColour() === 'palette';
@@ -346,6 +384,8 @@ export class ComposerView extends ItemView {
         return this.metricContext;
     }
     private transform(): void {
+        this.contentEl.classList.toggle('is-overview', this.viewport.scale < .55);
+        if (this.zoomLabel) this.zoomLabel.textContent = Math.round(this.viewport.scale * 100) + '%';
         this.scene.setAttribute('transform', `translate(${this.viewport.offset.x} ${this.viewport.offset.y}) scale(${this.viewport.scale})`);
         this.positionContext();
     }
@@ -395,6 +435,11 @@ export class ComposerView extends ItemView {
     private applyPanel(): void {
         const visible = this.draft.panel === 'show' || (this.draft.panel === 'auto' && (this.autoPanel || this.draft.mode === 'sketch'));
         this.pinButton?.setAttribute('aria-pressed', String(this.draft.panel === 'show'));
+        if (visible && this.contentEl.clientWidth < 900 && this.drawerOpen) {
+            this.drawerOpen = false; this.renderDrawer();
+        }
+        this.writingButton?.setAttribute('aria-pressed', String(visible && this.draft.mode !== 'sketch'));
+        this.modeButton?.setAttribute('aria-pressed', String(!visible && this.draft.mode !== 'sketch'));
         this.split.classList.toggle('has-body', visible); this.panel.setCssStyles({ width: `${this.draft.panelWidth * 100}%` });
         this.bodyPreview.hidden = visible;
         this.bodyPreview.textContent = plainPreview(this.draft.sketch?.notes.find(n => n.id === this.selectedNote)?.body ?? this.node().body) || ct('Add body…');
@@ -456,6 +501,10 @@ export class ComposerView extends ItemView {
         this.ideasButton.textContent = `${ct('Ideas')}${this.draft.unsorted?.length ? ` ${this.draft.unsorted.length}` : ''}`;
         this.ideasButton.setAttribute('aria-expanded', String(this.drawerOpen));
         this.ideasButton.hidden = this.drawerOpen;
+        if (this.drawerOpen && this.contentEl.clientWidth < 900) {
+            this.autoPanel = false; this.draft.panel = 'hide'; this.applyPanel();
+        }
+        this.split.classList.toggle('has-inbox', this.drawerOpen);
         this.drawer.hidden = !this.drawerOpen; this.preserveLayout(); this.drawerList.empty();
         if (!this.drawerOpen) return;
         const matches = searchDraft(this.draft, this.query, this.searchScope);
@@ -470,7 +519,7 @@ export class ComposerView extends ItemView {
             const label = this.button(row, `${node.type === 'todo' ? node.checked ? '☑ ' : '☐ ' : ''}${node.title || ct('New idea')}`, event => this.select(node.id, event));
             label.className = 'cmm-composer-idea-title';
             row.draggable = this.draft.mode === 'sketch';
-            row.ondragstart = event => { event.dataTransfer?.setData('application/x-cmm-idea', node.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'; };
+            row.ondragstart = event => { event.dataTransfer?.setData('application/x-cmm-idea', node.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'; };
             label.ondblclick = () => { this.select(node.id); this.rename(false); };
             if (node.body.trim()) { const preview = row.createDiv({ cls: 'cmm-composer-idea-preview', text: plainPreview(node.body) }); preview.onclick = event => this.select(node.id, event); }
             if (node.children.length) {
@@ -739,16 +788,34 @@ export class ComposerView extends ItemView {
     private canvasPoint(x: number, y: number): { x: number; y: number } {
         const rect = this.svg.getBoundingClientRect(); return { x: (x - rect.left - this.viewport.offset.x) / this.viewport.scale, y: (y - rect.top - this.viewport.offset.y) / this.viewport.scale };
     }
+    private openAppearancePicker(): void {
+        if (this.showAppearance) { this.showAppearance(this.contentEl); return; }
+        const initial = { appearance: this.contentEl.dataset.cmmAppearance as AppearancePreset,
+            surfaceMaterial: (this.contentEl.dataset.cmmMaterial ?? 'paper') as import('../settings').SurfaceMaterial };
+        new AppearancePicker(this.app, this.contentEl, initial, async () => {}, () => {
+            this.contentEl.dataset.cmmAppearance = initial.appearance; this.contentEl.dataset.cmmMaterial = initial.surfaceMaterial;
+        }).open();
+    }
+    private setWorkspaceMode(mode: 'structured' | 'sketch'): void {
+        this.selectedNote = undefined; this.selectedAnnotation = undefined; this.selectedLink = undefined;
+        this.sketchTool = 'select'; this.linkStart = undefined;
+        this.autoPanel = false; this.draft.panel = mode === 'sketch' ? 'auto' : 'hide';
+        if (this.draft.mode !== mode) this.change(draft => { draft.mode = mode; }, '', true);
+        else { this.applyPanel(); this.updateSketchControls(); }
+        this.stage.focus(); this.remember();
+    }
     private updateSketchControls(): void {
         const sketch = this.draft.mode === 'sketch'; this.contentEl.classList.toggle('is-sketch', sketch);
-        this.modeButton.textContent = sketch ? ct('Sketch') : ct('Structured');
-        this.modeButton.setAttribute('aria-label', ct('Switch Composer mode')); this.modeButton.setAttribute('aria-pressed', String(sketch));
+        this.modeButton.textContent = ct('Structured');
+        this.sketchModeButton.setAttribute('aria-pressed', String(sketch));
+        this.modeButton.setAttribute('aria-label', ct('Structured')); this.modeButton.setAttribute('aria-pressed', String(!sketch && !this.split.classList.contains('has-body')));
         this.arrangeButton.hidden = !sketch; this.sketchTools.hidden = !sketch;
         this.sketchTools.querySelectorAll<HTMLElement>('[data-tool]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.tool === this.sketchTool)));
         const connect = this.sketchTools.querySelector<HTMLButtonElement>('[data-tool="link"]');
         if (connect) connect.textContent = this.linkStart ? ct('Choose target') : ct('Connect');
     }
     private arrangeSketch(): void {
+        this.result = undefined;
         this.change(draft => { draft.sketch ??= emptySketch(); draft.sketch.positions = {}; }); this.fit();
     }
     private createFreeNote(position: { x: number; y: number }, title = ct('New idea'), body = '', sourceIdeaId?: string, rename = true): void {
@@ -761,6 +828,7 @@ export class ComposerView extends ItemView {
     }
     private selectNote(id: string): void {
         this.selectedNote = id; this.selectedAnnotation = undefined; this.selectedLink = undefined; this.interacted = true;
+        this.autoPanel = true; if (this.draft.panel === 'hide') this.draft.panel = 'auto';
         this.scene.querySelectorAll('.cmm-sketch-note').forEach(note => note.classList.toggle('is-selected', note.getAttribute('data-free-note-id') === id));
         this.scene.querySelectorAll('.cmm-organic-node').forEach(node => node.classList.remove('is-selected', 'is-multiselected'));
         this.syncBody(); this.applyPanel(); this.positionContext(); this.stage.focus();
@@ -932,7 +1000,11 @@ export class ComposerView extends ItemView {
                 targets.push({ id: '@unsorted', inbox: true, rect: this.drawerList.getBoundingClientRect() }); elements.set('@unsorted', this.drawerList);
             }
             // A source or descendant is an explicit invalid target, never a route to an old valid one.
-            const hit = blocked ? undefined : hitDrop(last.x, last.y, targets, drop);
+            let hit = blocked ? undefined : hitDrop(last.x, last.y, targets, drop);
+            // The document root has no sibling insertion slots. An inbox idea dropped near
+            // its upper/lower edge is adopted as a child rather than rejected as "before root".
+            if (hit?.target === this.draft.root.id && entries(this.draft, true).some(entry => entry.node.id === id && entry.unsorted))
+                hit = { ...hit, position: 'child' };
             drop = undefined; preview.hidden = true;
             preview.removeAttribute('data-position'); preview.removeAttribute('data-target'); preview.removeAttribute('data-valid');
             ghost.hidden = false; ghost.textContent = `${selectedRoots(this.draft, ids).length || 1} · ${this.node(id).title || ct('New idea')}`;
@@ -994,7 +1066,22 @@ export class ComposerView extends ItemView {
             if (e.pointerId !== event.pointerId) return;
             last = { x: e.clientX, y: e.clientY }; if (moved && id) feedback();
             cleanup();
-            if (moved && id && drop?.valid) { const destination = drop; this.change(draft => { transferNodes(draft, ids, destination); draft.selection = id; draft.selections = ids; }); this.ensureVisible(); this.stage.focus(); }
+            const fromInbox = !!id && !!entries(this.draft, true).find(entry => entry.node.id === id)?.unsorted;
+            const canvas = this.svg.getBoundingClientRect();
+            const onCanvas = last.x >= canvas.left && last.x <= canvas.right && last.y >= canvas.top && last.y <= canvas.bottom;
+            if (moved && id && fromInbox && onCanvas && (!drop || drop.valid)) {
+                const destination = drop ?? { target: this.draft.root.id, position: 'child' as const };
+                const point = this.canvasPoint(last.x, last.y);
+                this.change(draft => {
+                    transferNodes(draft, ids, destination);
+                    draft.mode = 'sketch'; draft.sketch ??= emptySketch();
+                    selectedRoots(draft, ids).forEach((entry, index) => {
+                        draft.sketch!.positions[entry.node.id] = { x: point.x - 55, y: point.y - 25 + index * 64 };
+                    });
+                    draft.selection = id; draft.selections = ids;
+                }, '', true, false);
+                this.ensureVisible(); this.stage.focus();
+            } else if (moved && id && drop?.valid) { const destination = drop; this.change(draft => { transferNodes(draft, ids, destination); draft.selection = id; draft.selections = ids; }); this.ensureVisible(); this.stage.focus(); }
             if (!id && !moved) { this.autoPanel = false; this.applyPanel(); this.stage.focus(); }
             this.remember();
         };
@@ -1011,7 +1098,7 @@ export class ComposerView extends ItemView {
         const y = (node.y + node.height) * this.viewport.scale + this.viewport.offset.y;
         this.contextBar.setCssStyles({ left: Math.max(8, Math.min(x, this.stage.clientWidth - this.contextBar.offsetWidth - 8)) + 'px',
             top: Math.max(8, Math.min(y + 12, this.stage.clientHeight - 48)) + 'px' });
-        if (this.emptyHint) this.emptyHint.setCssStyles({ left: (x + node.width * this.viewport.scale / 2) + 'px', top: (y + 16) + 'px' });
+        if (this.emptyHint) this.emptyHint.setCssStyles({ left: '50%', top: Math.max(70, Math.min(y + 32, this.stage.clientHeight - 210)) + 'px' });
     }
     private viewMenu(event: MouseEvent): void {
         const menu = new Menu();

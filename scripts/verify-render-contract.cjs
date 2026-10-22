@@ -70,8 +70,8 @@ const rects = svg => svg.match(/<rect[^>]*>/g) ?? [];
     const cards = rects(svg).filter(r => r.includes('cmm-organic-hitbox'));
     assert.equal(cards.length, 2, 'one card rect per node');
     assert.ok(cards.every(r => /fill="/.test(r)), 'every card declares its own fill');
-    assert.ok(cards.every(r => /stroke="none"/.test(r)), 'no card carries a visible border');
-    assert.ok(cards.every(r => /stroke-width="0"/.test(r)), 'the stroke width is an attribute even at zero');
+    assert.ok(cards.every(r => /stroke="var\(--cmm-/.test(r)), 'cards use theme-aware borders');
+    assert.ok(cards.every(r => /stroke-width="(?:0\.8|1\.4)"/.test(r)), 'root and child border weights are exported attributes');
     assert.ok(!cards.some(r => /fill="transparent"/.test(r)), 'no card relies on a CSS default for its fill');
 }
 
@@ -150,5 +150,5 @@ const rects = svg => svg.match(/<rect[^>]*>/g) ?? [];
         'styles.css must not set an unconditional fill/stroke on .cmm-organic-hitbox; the renderer owns it');
 }
 
-console.log('PASS render contract: card radius, borderless cards, root sheet header, single tapered ' +
+console.log('PASS render contract: card radius, theme-aware cards, root sheet header, single tapered ' +
     'connector, font metrics and surface overrides are attributes, and CSS does not override them');

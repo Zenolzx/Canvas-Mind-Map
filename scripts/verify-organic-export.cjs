@@ -111,7 +111,7 @@ const result = {
 
 globalThis.XMLSerializer = class { serializeToString(node) { return serialize(node); } };
 const document = makeDocument();
-const svg = new OrganicExportService().svg(document, result, {
+const presentation = {
     background: '#ffffff', foreground: '#102020', border: '#cccccc', rootBackground: '#f2f2f2',
     nodeBackground: '#fbfbfb', branch: '#336655', muted: '#203030',
     accent: '#0a84ff', highlight: '#ffe9a8', fontFamily: 'Inter',
@@ -121,9 +121,11 @@ const svg = new OrganicExportService().svg(document, result, {
     resolve: declaration => {
         const name = /var\(\s*(--[A-Za-z0-9-]+)/.exec(declaration)?.[1] ?? '';
         return ({ '--cmm-ink': '#102020', '--cmm-muted': '#203030', '--cmm-rule': '#cccccc',
-            '--cmm-paper': '#ffffff', '--cmm-branch-2': '#336655' })[name] ?? '#888888';
+            '--cmm-paper': '#ffffff', '--cmm-branch-2': '#336655', '--cmm-node-fill': '#fbfbfb',
+            '--cmm-paper-raised': '#f2f2f2', '--cmm-accent': '#0a84ff' })[name] ?? '#888888';
     },
-});
+};
+const svg = new OrganicExportService().svg(document, result, presentation);
 
 assert.ok(!/<style/.test(svg), 'export must not depend on a stylesheet');
 
@@ -142,10 +144,12 @@ assert.ok(/stroke="#336655"/.test(solid[0]), 'the per-branch token is substitute
 const rects = svg.match(/<rect[^>]*>/g) ?? [];
 const cards = rects.filter(r => r.includes('cmm-organic-hitbox'));
 assert.equal(cards.length, 2, 'one card rect per node');
-assert.ok(cards.every(r => /stroke="none"/.test(r)), 'no card carries a visible border');
-assert.ok(cards.every(r => /stroke-width="0"/.test(r)), 'the stroke width is an attribute even at zero');
+assert.match(cards[0], /stroke="#0a84ff"/, 'root border resolves to the theme accent');
+assert.match(cards[1], /stroke="#cccccc"/, 'child border resolves to the theme rule');
+assert.ok(cards.every(r => /stroke-width="(?:0\.8|1\.4)"/.test(r)), 'border weights survive export');
 assert.ok(/rx="9"/.test(cards[0]), 'cards carry the surface radius instead of relying on CSS');
-assert.ok(/fill="none"/.test(cards[0]), 'the root card is not a box');
+assert.ok(/fill="#f2f2f2"/.test(cards[0]), 'root background survives export');
+assert.ok(/fill="#fbfbfb"/.test(cards[1]), 'child background survives export');
 assert.match(svg, /class="cmm-organic-head-rule"/, 'the root head rule survives the export');
 assert.match(svg, /<line[^>]*stroke="#cccccc"/, 'the head rule colour is substituted, not left as a token');
 
@@ -155,4 +159,14 @@ assert.ok(!/<text[^>]*fill="#203030"/.test(svg), 'no card label falls back to th
 assert.ok(/<svg[^>]*font-family="Inter, /.test(svg), 'the root element carries the resolved font family');
 assert.ok(!/var\(--/.test(svg), 'no custom property reference may survive into the exported file');
 
-console.log('PASS export: single tapered connector, borderless cards, root sheet header, token substitution and fonts resolved without CSS');
+for (const kind of ['paper', 'dots', 'grid']) {
+    const themed = new OrganicExportService().svg(document, result, { ...presentation,
+        material: { kind, accent: '#356f63', texture: 'rgba(35,61,60,.06)' } });
+    assert.ok(!/var\(--/.test(themed), `${kind}: theme variables must resolve`);
+    assert.ok(!/(?:href|src)=["']https?:|data:image|<image\b/.test(themed), `${kind}: material must be self-contained`);
+    const ids = new Set([...themed.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
+    for (const [, id] of themed.matchAll(/url\(#([^)]+)\)/g)) assert.ok(ids.has(id), `${kind}: missing definition ${id}`);
+    assert.match(themed, /fill="#102020"/, `${kind}: foreground stays legible`);
+    assert.match(themed, /data-child-id="a"/, `${kind}: content survives material export`);
+}
+console.log('PASS export: shared hierarchy, resolved theme colours, self-contained paper/dot/grid materials and fonts');

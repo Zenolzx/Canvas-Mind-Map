@@ -3,10 +3,11 @@ import { t } from '../i18n';
 import type { OrganicLayoutStyle } from './OrganicViewState';
 
 export interface OrganicToolbarActions {
+    appearance?: () => void;
     search(query: string): void; next(delta: number): void; clearSearch(): void;
     focus(): void; reading(): void; refresh(): void; fit(): void; zoom(factor: number): void;
     layout(style: OrganicLayoutStyle): void;
-    export(format: 'svg' | 'png'): void;
+    export(format: 'svg' | 'png', themed?: boolean): void;
 }
 export class OrganicToolbar {
     readonly status: HTMLElement;
@@ -38,10 +39,14 @@ export class OrganicToolbar {
             layout.createEl('option', { text, value });
         layout.addEventListener('change', () => actions.layout(layout.value as OrganicLayoutStyle));
         this.layoutSelect = layout;
+        if (actions.appearance) iconButton(tools, t('导图外观'), actions.appearance, 'palette');
         button(tools, t('导出'), () => {
             const menu = new Menu();
             menu.addItem(item => item.setTitle('SVG').onClick(() => actions.export('svg')));
             menu.addItem(item => item.setTitle('PNG').onClick(() => actions.export('png')));
+            menu.addSeparator();
+            menu.addItem(item => item.setTitle(t('SVG · 主题纸面')).onClick(() => actions.export('svg', true)));
+            menu.addItem(item => item.setTitle(t('PNG · 主题纸面')).onClick(() => actions.export('png', true)));
             const rect = tools.getBoundingClientRect(); menu.showAtPosition({ x: rect.right - 120, y: rect.bottom });
         }, 'download');
         button(tools, t('刷新'), actions.refresh, 'refresh-cw'); button(tools, t('适应窗口'), actions.fit, 'maximize');

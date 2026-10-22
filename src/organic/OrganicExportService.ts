@@ -13,6 +13,8 @@ export interface OrganicPresentation {
      */
     resolve?: (declaration: string) => string;
     surface?: OrganicSurfaceStyle;
+    /** Optional portable theme material. All marks are SVG, so PNG needs no external assets. */
+    material?: { kind: 'none' | 'paper' | 'dots' | 'grid'; accent: string; texture: string };
 }
 export type OrganicRenderActions = Parameters<OrganicMindMapRenderer['render']>[2];
 
@@ -25,6 +27,28 @@ export class OrganicExportService {
             width: b.width, height: b.height, viewBox: `${b.x} ${b.y} ${b.width} ${b.height}` });
         svg.setAttribute('font-family', `${presentation.fontFamily}, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif`);
         svg.append(svgElement(document, 'rect', { x: b.x, y: b.y, width: b.width, height: b.height, fill: presentation.background }));
+        if (presentation.material && presentation.material.kind !== 'none') {
+            const material = presentation.material;
+            const defs = svgElement(document, 'defs'); svg.append(defs);
+            const wash = svgElement(document, 'radialGradient', { id: 'cmm-export-wash', cx: '0%', cy: '0%', r: '100%' });
+            wash.append(svgElement(document, 'stop', { offset: '0%', 'stop-color': material.accent, 'stop-opacity': .16 }),
+                svgElement(document, 'stop', { offset: '85%', 'stop-color': material.accent, 'stop-opacity': 0 }));
+            defs.append(wash);
+            svg.append(svgElement(document, 'rect', { x: b.x, y: b.y, width: b.width, height: b.height, fill: 'url(#cmm-export-wash)' }));
+            if (material.kind === 'paper') {
+                const grain = svgElement(document, 'filter', { id: 'cmm-export-grain', x: '0%', y: '0%', width: '100%', height: '100%' });
+                grain.append(svgElement(document, 'feTurbulence', { type: 'fractalNoise', baseFrequency: .85, numOctaves: 3, stitchTiles: 'stitch', seed: 3 }),
+                    svgElement(document, 'feColorMatrix', { type: 'saturate', values: '0' }));
+                defs.append(grain);
+                svg.append(svgElement(document, 'rect', { x: b.x, y: b.y, width: b.width, height: b.height, opacity: .055, filter: 'url(#cmm-export-grain)' }));
+            } else {
+                const pattern = svgElement(document, 'pattern', { id: 'cmm-export-pattern', width: 28, height: 28, patternUnits: 'userSpaceOnUse' });
+                if (material.kind === 'dots') pattern.append(svgElement(document, 'circle', { cx: 1, cy: 1, r: .8, fill: material.texture }));
+                else pattern.append(svgElement(document, 'path', { d: 'M 28 0 H 0 V 28', fill: 'none', stroke: material.texture, 'stroke-width': 1 }));
+                defs.append(pattern);
+                svg.append(svgElement(document, 'rect', { x: b.x, y: b.y, width: b.width, height: b.height, fill: 'url(#cmm-export-pattern)' }));
+            }
+        }
         const scene = svgElement(document, 'g'); svg.append(scene);
         const renderer = new OrganicMindMapRenderer();
         // The surface carries the same geometry the screen uses, so a card's radius, fill and

@@ -131,8 +131,8 @@ const { chromium } = requireTooling('Writing browser');
    await drag('Background','Child',.5,false);
    console.log('PASS real pointer Before / Make child / After, no writes during drag, cycle rejection');
   }
-  await page.screenshot({path:'tmp/writing-browser/result.png',fullPage:true});
-  expectScreenshot('writing-result', await page.screenshot({ fullPage: true }));
+  await page.screenshot({animations: 'disabled', path:'tmp/writing-browser/result.png',fullPage:true});
+  expectScreenshot('writing-result', await page.screenshot({animations: 'disabled',  fullPage: true }));
   if(await page.evaluate(()=>!!window.testError))process.exitCode=1;
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

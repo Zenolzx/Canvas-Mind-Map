@@ -64,19 +64,23 @@ const {chromium}=requireTooling('Composer interaction browser');
   await card('Seed B').click();await drag(card('Seed B'),card('Direct child'));assert.equal((await state()).unsorted.find(n=>n.title==='Goals').children.length,1);assert.ok((await state()).unsorted.some(n=>n.title==='Seed B'));await undo();
   await page.getByRole('searchbox',{name:'Search ideas',exact:true}).fill('details');assert.equal(await card('Goals').count(),1);assert.equal(await card('Seed B').count(),0);await page.getByRole('searchbox',{name:'Search ideas',exact:true}).fill('');
   await fit();await drag(card('Goals'),node('Scope'));assert.equal((await state()).root.children.find(n=>n.title==='Scope').children[0].children[0].body,'A body preview\n\nwith **details**');
+  assert.equal((await state()).mode,'sketch');await page.getByRole('button',{name:'Structured'}).click();
   // Hidden inbox auto-opens after a deliberate hover during a drag.
   await page.getByRole('button',{name:'Close Ideas',exact:true}).click();await fit();await start(node('Milestones'));await move(await point(page.locator('.cmm-composer-ideas-entry')));await page.waitForTimeout(450);assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),true);await page.keyboard.press('Escape');await page.mouse.up();
   assert.equal(await page.locator('.cmm-composer-context button').count(),1);await node('Scope').click({button:'right'});const menuText=await page.getByRole('menu').textContent();assert.ok(!/Add child|Add sibling|Move before|Move after|Move to Unsorted/.test(menuText));await page.getByRole('menuitem',{name:'Duplicate',exact:true}).click();assert.equal((await state()).root.children.filter(n=>n.title==='Scope').length,2);await undo();
   for(const layout of ['Radial','Compact','Horizontal']) {await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Layout',exact:true}).click();await page.getByRole('menuitem',{name:layout,exact:true}).click();assert.ok((await map.boundingBox()).width>240);}
   await page.mouse.move(4,4);await page.waitForTimeout(60);
-  const inboxEn=await page.screenshot({path:'tmp/composer-browser/composer-inbox-en.png'});
+  const inboxEn=await page.screenshot({animations: 'disabled', path:'tmp/composer-browser/composer-inbox-en.png'});
   expectScreenshot('composer-inbox-en', inboxEn);
-  await page.setViewportSize({width:560,height:800});await page.locator('.cmm-composer-body-preview').click();const narrow=await map.boundingBox(),side=await page.locator('.cmm-composer-unsorted').boundingBox(),body=await page.locator('.cmm-composer-body').boundingBox();assert.ok(side.x+side.width<=narrow.x+1);assert.ok(narrow.x+narrow.width<=body.x+1);assert.ok(narrow.width>=240);
+  await page.setViewportSize({width:560,height:800});await page.getByRole('button',{name:'Writing',exact:true}).click();
+  const narrow=await map.boundingBox(),body=await page.locator('.cmm-composer-body').boundingBox();
+  assert.equal(await page.locator('.cmm-composer-unsorted').isVisible(),false,'narrow drawers are mutually exclusive');
+  assert.ok(body.x>=0 && body.x+body.width<=560,'body drawer stays in the pane');assert.ok(narrow.width>=240);
   await page.goto(url+'?lang=zh-CN');await page.waitForFunction(()=>window.ready);await page.setViewportSize({width:1440,height:900});
   await page.getByRole('button',{name:'灵感箱',exact:true}).click();await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).fill('双语灵感');await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).press('Enter');assert.equal((await state()).unsorted[0].title,'双语灵感');
   await page.getByRole('button',{name:'更多',exact:true}).click();await page.getByRole('menuitem',{name:'草稿',exact:true}).click();await page.getByRole('menuitem',{name:'从模板新建',exact:true}).click();assert.equal(await page.getByRole('button',{name:'项目计划',exact:true}).count(),1);await page.evaluate(()=>document.querySelector('.test-modal').remove());
   await page.getByRole('button',{name:'创建笔记',exact:true}).click();await page.getByRole('button',{name:'预览 Markdown',exact:true}).click();assert.match(await page.getByRole('alert').textContent(),/灵感箱/);await page.getByRole('button',{name:'取消',exact:true}).click();
-  const inboxZh=await page.screenshot({path:'tmp/composer-browser/composer-inbox-zh.png'});
+  const inboxZh=await page.screenshot({animations: 'disabled', path:'tmp/composer-browser/composer-inbox-zh.png'});
   expectScreenshot('composer-inbox-zh', inboxZh);
   const languageDraft=await state();await page.getByRole('textbox',{name:'记录一个想法…',exact:true}).fill('Still typing');await page.evaluate(()=>window.composerTest.setLanguage('en'));assert.equal(await capture.inputValue(),'Still typing');assert.equal((await state()).root.title,languageDraft.root.title);assert.deepEqual((await state()).unsorted,languageDraft.unsorted);assert.equal(await page.getByRole('button',{name:'Create Note',exact:true}).count(),1);
   await page.evaluate(()=>window.composerTest.setLanguage('zh-CN'));await page.evaluate(()=>window.composerTest.setLanguage('en'));await capture.press('Enter');assert.equal((await state()).unsorted.length,2);assert.equal((await state()).unsorted[1].title,'Still typing');

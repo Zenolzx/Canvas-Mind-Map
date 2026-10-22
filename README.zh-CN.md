@@ -282,7 +282,7 @@ npm run build
 
 `npm test` 运行完整测试：先跑模型与解析层回归（`test:unit`），再跑无头浏览器套件（`test:browser`），覆盖 Composer、手稿、Organic 编辑与写作工作区。迭代时可只运行 `test:unit`。Playwright 已列为开发依赖，浏览器套件会自动定位它和一个 Chromium 内核浏览器；两者都缺失时会给出清晰提示并跳过。可用 `CMM_PLAYWRIGHT` / `CMM_BROWSER` 覆盖路径，或用 `CMM_REQUIRE_BROWSER=1` 让浏览器缺失变成失败（CI 即如此）。
 
-针对视觉层还有三道护栏：浏览器套件会把截图与 `baselines/` 中已提交的基线对比，超出校准后的像素容差即失败，并把带标注的差异图写入 `tmp/visual-diffs/`；确属有意改动时用 `CMM_UPDATE_BASELINES=1` 重新录制。这些基线**与平台绑定**：字形栅格与字体回退因操作系统而异，因此每张基线都在 `baselines/environment.json` 中记录了录制平台，在其他平台上抓到的图会被明确跳过而不是误报为回归（用 `CMM_REQUIRE_VISUAL=1` 可强制对比）。由于小幅属性改动影响的像素量可能与指针抖动同量级，`verify-render-contract.cjs` 还会在 DOM 层断言卡片圆角、无边框卡片、根节点稿纸抬头、单一渐细连线与字体度量，并确保 `styles.css` 不会覆盖它们。`verify-design-tokens.cjs` 保证每个值只有一个所有者：十六进制色值与裸 `font-size` 只能出现在令牌层，每套配色在亮暗两种主题下都必须声明完整令牌集，TypeScript 中的圆角与分支调色板镜像必须与 CSS 一致，且 `main.js` 必须守在体积预算之内，避免图片素材重新混入。`verify-layout-composition.cjs` 则对布局的距心离散度、同级间距与长宽比设置上限。这些测试都不能替代真实 Vault 验收。
+针对视觉层还有三道护栏：浏览器套件会把截图与 `baselines/` 中已提交的基线对比，超出校准后的像素容差即失败，并把带标注的差异图写入 `tmp/visual-diffs/`；确属有意改动时用 `CMM_UPDATE_BASELINES=1` 重新录制。这些基线**与平台绑定**：字形栅格与字体回退因操作系统而异，因此每张基线都在 `baselines/environment.json` 中记录了录制平台，在其他平台上抓到的图会被明确跳过而不是误报为回归（用 `CMM_REQUIRE_VISUAL=1` 可强制对比）。由于小幅属性改动影响的像素量可能与指针抖动同量级，`verify-render-contract.cjs` 还会在 DOM 层断言卡片圆角、分层卡片与主题边框、根节点标题层级、单一渐细连线与字体度量，并确保 `styles.css` 不会覆盖它们。`verify-design-tokens.cjs` 保证每个值只有一个所有者：十六进制色值与裸 `font-size` 只能出现在令牌层，每套配色在亮暗两种主题下都必须声明完整令牌集，TypeScript 中的圆角与分支调色板镜像必须与 CSS 一致，且 `main.js` 必须守在体积预算之内，避免图片素材重新混入。`verify-layout-composition.cjs` 则对布局的距心离散度、同级间距与长宽比设置上限。这些测试都不能替代真实 Vault 验收。
 
 ## 反馈
 

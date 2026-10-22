@@ -2,6 +2,8 @@ import { COMPOSER_ZH } from './composer/ComposerStrings';
 export type LanguageSetting = 'auto' | 'en' | 'zh-CN';
 
 const EN: Record<string, string> = {
+    'SVG · 主题纸面': 'SVG · themed paper', 'PNG · 主题纸面': 'PNG · themed paper',
+    '矿物纸面': 'Mineral paper', '深夜石墨': 'Midnight graphite', '雾林': 'Forest mist',
     'Organic：从原笔记刷新': 'Organic: Refresh from source note',
     'Organic 状态保存失败，请查看控制台。': 'Organic state could not be saved. Check the console.',
     '展开 / 折叠': 'Expand / Collapse', '外观': 'Appearance',

@@ -3,7 +3,7 @@ const esbuild = require('esbuild');
 const bundle = esbuild.buildSync({ stdin: { contents: `export * from './src/composer/ComposerModel'; export * from './src/composer/ComposerSketch'; export * from './src/organic/OrganicLayoutEngine';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'cjs', write: false });
 const moduleValue = { exports: {} };
 new Function('module', 'exports', 'require', bundle.outputFiles[0].text)(moduleValue, moduleValue.exports, require);
-const { newDraft, newNode, emptySketch, normalizeDraft, ComposerHistory, exportMarkdown, sketchLayout, OrganicLayoutEngine, projectDraft } = moduleValue.exports;
+const { newDraft, newNode, emptySketch, normalizeDraft, ComposerHistory, exportMarkdown, sketchLayout, settleSketchPositions, OrganicLayoutEngine, projectDraft } = moduleValue.exports;
 const draft = newDraft(); draft.root.title = 'Writing'; const a = newNode('Goals'); draft.root.children.push(a);
 assert.equal(normalizeDraft(JSON.parse(JSON.stringify(draft))).mode, 'structured');
 const original = exportMarkdown(draft).text;
@@ -24,6 +24,21 @@ const one = sketchLayout(base, restored.sketch), two = sketchLayout(base, restor
 assert.deepEqual(one, two, 'stable sketch geometry must not flicker');
 assert.equal(one.nodes.find(n => n.id === a.id).x, 520);
 assert.equal(one.branches.find(b => b.childId === a.id).end.x, 520);
+const stable = emptySketch();
+settleSketchPositions(base, stable);
+const before = sketchLayout(base, stable);
+const added = newNode('A new thought');
+restored.root.children[0].children.push(added);
+const expanded = engine.layout(projectDraft(restored), { style: 'organic-horizontal', collapsed: new Set(), measureText: text => text.length * 9 });
+settleSketchPositions(expanded, stable, before);
+const after = sketchLayout(expanded, stable);
+for (const prior of before.nodes) {
+    const current = after.nodes.find(node => node.id === prior.id);
+    assert.deepEqual({ x: current.x, y: current.y }, { x: prior.x, y: prior.y }, `adding a thought moved ${prior.title}`);
+}
+const parent = after.nodes.find(node => node.id === a.id), newcomer = after.nodes.find(node => node.id === added.id);
+assert.ok(Math.hypot(newcomer.x - parent.x, newcomer.y - parent.y) < 400, 'new thought lands near its parent');
+assert.ok(after.nodes.filter(node => node.id !== added.id).every(node => newcomer.x + newcomer.width + 20 <= node.x || node.x + node.width + 20 <= newcomer.x || newcomer.y + newcomer.height + 20 <= node.y || node.y + node.height + 20 <= newcomer.y), 'new thought avoids existing cards');
 history.undo(); assert.equal(history.draft.mode, undefined); assert.equal(exportMarkdown(history.draft).text, original);
 history.redo(); assert.equal(history.draft.sketch.notes[0].body, 'Explore later');
 console.log('PASS Composer Sketch: legacy draft, deterministic geometry, saved positions, independent notes and links, Markdown isolation, undo/redo');

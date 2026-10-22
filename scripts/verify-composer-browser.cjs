@@ -3,11 +3,11 @@ const dir=path.resolve('tmp/composer-browser');fs.mkdirSync(dir,{recursive:true}
 fs.writeFileSync(path.join(dir,'obsidian.cjs'),`
 const base=require('../../scripts/organic-browser-obsidian.cjs');Object.assign(exports,base);
 exports.ItemView=class extends base.ItemView {
- constructor(leaf){super(leaf);this.leaf=leaf;this.cleanups=[];}
+ constructor(leaf){super(leaf);this.leaf=leaf;this.cleanups=[];this.contentEl.style.height='100dvh';}
  register(fn){this.cleanups.push(fn);}
  registerDomEvent(el,type,fn,options){el.addEventListener(type,fn,options);this.register(()=>el.removeEventListener(type,fn,options));}
 };
-exports.setIcon=(el,name)=>{el.setAttribute('data-icon',name);el.innerHTML='<svg width=18 height=18 viewBox="0 0 24 24" aria-hidden="true"><circle cx=5 cy=12 r=1 fill="currentColor"/><circle cx=12 cy=12 r=1 fill="currentColor"/><circle cx=19 cy=12 r=1 fill="currentColor"/></svg>';};
+exports.setIcon=base.setIcon;
 exports.TFolder=class{constructor(path){this.path=path;}};
 // Obsidian owns YAML parsing. The fixture exposes representative mapping/scalar/error results.
 exports.parseYaml=value=>value==='status: draft'?{status:'draft'}:JSON.parse(value);
@@ -44,7 +44,7 @@ const store=new ComposerStore(undefined,async()=>{if(fail)throw new Error('disk 
 const app={scope:{},vault:{on(){},getRoot:()=>files.get('/'),getAllLoadedFiles:()=>Array.from(files.values()),getAbstractFileByPath:p=>files.get(p),read:async f=>contents.get(f.path),process:async(f,fn)=>{const text=fn(contents.get(f.path));contents.set(f.path,text);return text;},create:async(p,text)=>{if(files.has(p))throw new Error('File exists');const f=new TFile(p);files.set(p,f);contents.set(p,text);created++;return f;}},workspace:{requestSaveLayout(){},getLeavesOfType(){return[];},iterateAllLeaves(){},getLeaf(){return{openFile:async()=>{}}}}};
 const host=new ObsidianDocumentHost(app);
 const leaf={app,setViewState:async state=>{await view.onClose();view.contentEl.remove();const organic=new OrganicMindMapView(leaf,undefined,()=>({animation:false,autoRefresh:false}),host);leaf.view=organic;await organic.onOpen();await organic.setState(state.state,{history:false});handoff=state;},detach(){}};
-const view=new ComposerView(leaf,store);
+const view=new ComposerView(leaf,store,()=> 'ink',el=>{el.dataset.cmmMaterial='paper';});
 (async()=>{await view.onOpen();await view.setState({targetFolder:'Projects'},{history:false});view.focusMap();window.composerTest={view,store,files,contents,
 // Production sets the appearance axes on the view container and resolves the background image
 // itself (see main.applyAppearance). The fixture mirrors that: a preset is hue only, and the

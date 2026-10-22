@@ -9,8 +9,8 @@ export function renderOrganicSettings(container: HTMLElement, plugin: CanvasMind
         .addDropdown(dropdown => dropdown
             .addOptions({
                 obsidian: t('跟随 Obsidian 主题'),
-                ink: t('淡雅青绿·水墨'), cinnabar: t('暖白宣纸·朱砂'),
-                breeze: t('薄荷叶影'), violet: t('樱花湖景'),
+                ink: t('矿物纸面'), slate: t('深夜石墨'), cinnabar: t('暖白宣纸·朱砂'),
+                breeze: t('雾林'), violet: t('樱花湖景'),
             })
             .setValue(plugin.settings.appearance).onChange(async value => {
                 plugin.settings.appearance = normalizeAppearancePreset(value);

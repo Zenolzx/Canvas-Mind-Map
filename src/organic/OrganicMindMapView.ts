@@ -83,7 +83,7 @@ export class OrganicMindMapView extends ItemView {
     constructor(leaf: WorkspaceLeaf, private store?: OrganicStateStore,
         private settings: () => OrganicSettings = () => normalizeOrganicSettings({}), private documentHost?: ObsidianDocumentHost,
         private appearance: () => AppearancePreset = () => 'obsidian', private applyAppearance?: (element: HTMLElement) => void,
-        private branchColour: () => BranchColourMode = () => 'palette') { super(leaf); }
+        private branchColour: () => BranchColourMode = () => 'palette', private showAppearance?: (target: HTMLElement) => void) { super(leaf); }
     getViewType(): string { return ORGANIC_VIEW; }
     getDisplayText(): string { return this.file ? `${this.file.basename} · Organic` : 'Organic Mind Map'; }
     getIcon(): string { return 'git-fork'; }
@@ -200,7 +200,8 @@ export class OrganicMindMapView extends ItemView {
             refresh: () => { void this.refresh(); },
             fit: () => { this.fit(); this.remember(); }, zoom: factor => this.zoom(factor),
             layout: style => { this.state.layout = style; this.draw(); this.fit(); this.remember(); },
-            export: format => { void this.exportMap(format); },
+            appearance: this.showAppearance ? () => this.showAppearance?.(this.contentEl) : undefined,
+            export: (format, themed) => { void this.exportMap(format, themed); },
         });
         this.status = this.toolbar.status;
         const writingActions = this.contentEl.createDiv({ cls: 'cmm-writing-toolbar' });
@@ -610,7 +611,7 @@ export class OrganicMindMapView extends ItemView {
         if (rootChanged) this.fit();
         this.status.textContent = `${t('{count} 个章节', { count: doc.order.length })} · ${t('Enter 同级 / Tab 子章节 / F2 重命名')}${doc.diagnostics.length ? ' · ' + t('当前文档需修复：{message}', { message: doc.diagnostics[0]?.message ?? '' }) : ''}`;
     }
-    private async exportMap(format: 'svg' | 'png'): Promise<void> {
+    private async exportMap(format: 'svg' | 'png', themed = false): Promise<void> {
         const file = this.file, result = this.result;
         if (!file || !result || this.exporting) return;
         this.exporting = true;
@@ -633,6 +634,8 @@ export class OrganicMindMapView extends ItemView {
                 border: color('--cmm-rule', color('--text-faint', '#c6b9a6')),
                 accent: color('--cmm-accent', color('--interactive-accent', '#218b89')),
                 highlight: color('--text-highlight-bg', '#ffe39c'), fontFamily: style.fontFamily,
+                material: themed ? { kind: (this.contentEl.dataset.cmmMaterial ?? 'paper') as 'none' | 'paper' | 'dots' | 'grid',
+                    accent: color('--cmm-accent', '#356f63'), texture: color('--cmm-texture', 'rgba(35, 61, 60, .06)') } : undefined,
                 // Per-branch hues are tokens on screen; an export has no stylesheet to resolve them.
                 resolve: declaration => {
                     const match = /var\(\s*(--[A-Za-z0-9-]+)\s*(?:,\s*([^)]+))?\)/.exec(declaration);

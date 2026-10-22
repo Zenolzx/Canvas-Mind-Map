@@ -1,3 +1,4 @@
+import { AppearancePicker } from './src/appearance/AppearancePicker';
 import { Menu, moment, Notice, Plugin, PluginSettingTab, TFile, TFolder } from 'obsidian';
 import { ComposerStore } from './src/composer/ComposerStore';
 import { COMPOSER_VIEW, ComposerView, showDrafts, showTemplates } from './src/composer/ComposerView';
@@ -26,13 +27,23 @@ export default class CanvasMindMapPlugin extends Plugin {
     /** Tracks the undocumented Canvas prototype hooks, which can silently fail to install. */
     private patchState: { total: number; landed: number; stop?: () => void } = { total: 0, landed: 0 };
 
+    private openAppearance(target: HTMLElement): void {
+        const initial = { appearance: this.settings.appearance, surfaceMaterial: this.settings.surfaceMaterial };
+        const restore = () => { this.appearanceApplied.delete(target); this.applyAppearance(target); };
+        new AppearancePicker(this.app, target, initial, async choice => {
+            const previous = { ...initial };
+            Object.assign(this.settings, choice);
+            try { await this.saveSettings(); this.appearanceApplied.delete(target); this.refreshAppearance(); }
+            catch (error) { Object.assign(this.settings, previous); restore(); throw error; }
+        }, restore).open();
+    }
     async onload(): Promise<void> {
         const saved: Record<string, unknown> = await this.loadData() ?? {};
         this.settings = {
             organic: normalizeOrganicSettings(saved.organic),
-            appearance: normalizeAppearancePreset(saved.appearance),
+            appearance: saved.appearance === undefined ? 'ink' : normalizeAppearancePreset(saved.appearance),
             branchColour: normalizeBranchColourMode(saved.branchColour),
-            surfaceMaterial: normalizeSurfaceMaterial(saved.surfaceMaterial),
+            surfaceMaterial: saved.surfaceMaterial === undefined ? 'paper' : normalizeSurfaceMaterial(saved.surfaceMaterial),
             typography: normalizeMindmapTypeface(saved.typography),
             backgroundImage: typeof saved.backgroundImage === 'string' ? saved.backgroundImage : '',
             backgroundImageStrength: typeof saved.backgroundImageStrength === 'number' && Number.isFinite(saved.backgroundImageStrength)
@@ -73,8 +84,8 @@ export default class CanvasMindMapPlugin extends Plugin {
         const documentHost = new ObsidianDocumentHost(this.app);
         this.register(() => documentHost.dispose());
         this.registerEditorExtension(documentHost.extension);
-        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour));
-        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour));
+        this.registerView(ORGANIC_VIEW, leaf => new OrganicMindMapView(leaf, this.organicStates, () => this.settings.organic, documentHost, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour, target => this.openAppearance(target)));
+        this.registerView(COMPOSER_VIEW, leaf => new ComposerView(leaf, this.composerDrafts, () => this.settings.appearance, el => this.applyAppearance(el), () => this.settings.branchColour, target => this.openAppearance(target)));
         const openComposer = async (draftId?: string, targetFolder?: string) => {
             const existing = draftId && this.app.workspace.getLeavesOfType(COMPOSER_VIEW).find(leaf => leaf.view.getState().draftId === draftId);
             if (existing) { await this.app.workspace.revealLeaf(existing); return; }

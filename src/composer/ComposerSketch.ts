@@ -13,28 +13,68 @@ const wobble = (key: string, size: number): number => ((hash(key) % 2001) / 1000
 const center = (n: OrganicNode): Point => ({ x: n.x + n.width / 2, y: n.y + n.height / 2 });
 export const sketchId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 
-/** Applies saved positions after the normal structure layout. New headings keep their automatic position. */
+/** Freeze visible cards when a sketch starts, then give new cards a nearby free slot. */
+export function settleSketchPositions(base: OrganicLayoutResult, state: SketchState, previous?: OrganicLayoutResult): void {
+    const old = new Map(previous?.nodes.map(node => [node.id, node]) ?? []);
+    const occupied: { x: number; y: number; width: number; height: number }[] = state.notes.map(note => ({ ...note.position, ...SKETCH_NOTE_SIZE }));
+    const pending: OrganicNode[] = [];
+    for (const node of base.nodes) {
+        const saved = state.positions[node.id], prior = old.get(node.id);
+        if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) occupied.push({ ...node, ...saved });
+        else if (prior) { state.positions[node.id] = { x: prior.x, y: prior.y }; occupied.push({ ...node, ...state.positions[node.id] }); }
+        else pending.push(node);
+    }
+    const byId = new Map(base.nodes.map(node => [node.id, node]));
+    for (const node of pending) {
+        const parentId = base.branches.find(branch => branch.childId === node.id)?.parentId;
+        const parent = parentId && byId.get(parentId);
+        const parentPosition = parent && state.positions[parent.id];
+        // Initial sketch layout is already collision packed. Preserve it exactly.
+        if (!previous || !parent || !parentPosition || !old.has(parent.id)) {
+            state.positions[node.id] = { x: node.x, y: node.y };
+            occupied.push({ ...node, ...state.positions[node.id] });
+            continue;
+        }
+        const sign = node.direction && Math.cos(node.direction) < 0 ? -1 : 1;
+        const x = sign > 0 ? parentPosition.x + parent.width + 92 : parentPosition.x - node.width - 92;
+        const middle = parentPosition.y + parent.height / 2 - node.height / 2;
+        const step = node.height + 32;
+        const clear = (y: number) => occupied.every(box => x + node.width + 28 <= box.x || box.x + box.width + 28 <= x || y + node.height + 28 <= box.y || box.y + box.height + 28 <= y);
+        let y = middle;
+        for (let slot = 0; slot < 80; slot++) {
+            const offset = slot === 0 ? 0 : (slot % 2 ? 1 : -1) * Math.ceil(slot / 2);
+            const candidate = middle + offset * step;
+            if (clear(candidate)) { y = candidate; break; }
+        }
+        state.positions[node.id] = { x, y };
+        occupied.push({ ...node, x, y });
+    }
+}
+
+/** Applies saved positions after the normal structure layout. */
 export function sketchLayout(base: OrganicLayoutResult, state: SketchState): OrganicLayoutResult {
     const nodes = base.nodes.map(node => {
         const saved = state.positions[node.id];
-        const drift = node.depth > 0 ? { x: wobble(`${node.id}:x`, 9), y: wobble(`${node.id}:y`, 13) } : { x: 0, y: 0 };
         const extra = node.depth === 0 ? { width: 28, height: 12, font: 2.5 } : node.depth === 1 ? { width: 12, height: 6, font: 1 } : { width: 0, height: 0, font: 0 };
         const savedX = saved?.x, savedY = saved?.y;
         return { ...node, width: node.width + extra.width, height: node.height + extra.height,
             fontSize: node.fontSize + extra.font,
-            x: Number.isFinite(savedX) ? savedX! : node.x - extra.width / 2 + drift.x,
-            y: Number.isFinite(savedY) ? savedY! : node.y - extra.height / 2 + drift.y };
+            x: Number.isFinite(savedX) ? savedX! : node.x - extra.width / 2,
+            y: Number.isFinite(savedY) ? savedY! : node.y - extra.height / 2 };
     });
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches = base.branches.map(branch => {
         const parent = byId.get(branch.parentId)!, child = byId.get(branch.childId)!;
-        const a = center(parent), b = center(child), right = b.x >= a.x;
-        const start = { x: right ? parent.x + parent.width : parent.x, y: a.y + wobble(`${branch.childId}:sy`, Math.min(6, parent.height / 7)) };
-        const end = { x: right ? child.x : child.x + child.width, y: b.y + wobble(`${branch.childId}:ey`, Math.min(5, child.height / 7)) };
-        const reach = Math.max(24, Math.abs(end.x - start.x) * .42), bend = wobble(`${branch.childId}:bend`, 18);
+        const a = center(parent), b = center(child), dx = b.x - a.x, dy = b.y - a.y;
+        const horizontal = Math.abs(dx) / Math.max(1, parent.width + child.width) >= Math.abs(dy) / Math.max(1, parent.height + child.height);
+        const right = dx >= 0, down = dy >= 0;
+        const start = horizontal ? { x: right ? parent.x + parent.width : parent.x, y: a.y } : { x: a.x, y: down ? parent.y + parent.height : parent.y };
+        const end = horizontal ? { x: right ? child.x : child.x + child.width, y: b.y } : { x: b.x, y: down ? child.y : child.y + child.height };
+        const reach = Math.max(18, Math.min(74, (horizontal ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y)) * .42));
+        const ink = wobble(`${branch.childId}:ink`, 2.5);
         return { ...branch, start, end,
-            control1: { x: start.x + (right ? reach : -reach), y: start.y + bend },
-            control2: { x: end.x - (right ? reach : -reach), y: end.y - bend * .65 },
+            control1: horizontal ? { x: start.x + (right ? reach : -reach), y: start.y + ink } : { x: start.x + ink, y: start.y + (down ? reach : -reach) },
+            control2: horizontal ? { x: end.x - (right ? reach : -reach), y: end.y - ink } : { x: end.x - ink, y: end.y - (down ? reach : -reach) },
             width: Math.max(1.15, Math.min(2.25, branch.width)) };
     });
     const all = [...nodes.map(n => ({ x: n.x, y: n.y, width: n.width, height: n.height })),
@@ -94,7 +134,6 @@ export function paintSketch(scene: SVGGElement, layout: OrganicLayoutResult, sta
         group.style.setProperty('--cmm-sketch-branch', node.depth === 0 ? (BRANCH_COLORS[0] ?? '#668f86') : sketchBranchColor(node.rootBranchId ?? node.id));
         const outline = node.depth < 2 ? svgElement(doc, 'path', { d: roughOutline(node.width, node.height, node.id), class: 'cmm-sketch-outline' }) : svgElement(doc, 'path', { d: `M8 ${node.height - 3} Q${node.width / 2} ${node.height + wobble(node.id, 3)} ${node.width - 8} ${node.height - 3}`, class: 'cmm-sketch-underline' });
         group.querySelector('[role=link]')?.insertBefore(outline, group.querySelector('.cmm-organic-hitbox')?.nextSibling ?? null);
-        if (node.depth === 0 && !state.annotations.some(mark => mark.anchorId === node.id && mark.kind === 'ellipse')) group.querySelector('[role=link]')?.insertBefore(svgElement(doc, 'path', { d: roughOutline(node.width + 5, node.height + 3, node.id + ':echo'), class: 'cmm-sketch-outline-echo', transform: 'translate(-2.5 -1.5)' }), outline);
         const link = group.querySelector('[role=link]');
         for (const annotation of state.annotations.filter(a => a.anchorId === node.id))
             link?.insertBefore(sketchAnnotationElement(doc, annotation, selectedAnnotation === annotation.id, seedFor(annotation)), link.querySelector('text'));
@@ -146,7 +185,7 @@ function sketchLinkPath(id: string, from: { x: number; y: number; width: number;
     const first = edge(from), last = edge(to);
     const start = { x: a.x + dx * first, y: a.y + dy * first };
     const end = { x: b.x - dx * last, y: b.y - dy * last };
-    const curve = wobble(id, 16);
+    const curve = wobble(id, 3.5);
     return `M${start.x} ${start.y} Q${(start.x + end.x) / 2 + curve} ${(start.y + end.y) / 2 - curve} ${end.x} ${end.y}`;
 }
 /** Move a note and its auxiliary links without laying out the entire document on every pointer event. */
@@ -164,6 +203,6 @@ export function paintSketchNoteMove(scene: SVGGElement, layout: OrganicLayoutRes
     }
 }
 function roughOutline(w: number, h: number, id: string): string {
-    const r = Math.min(h / 2, 27), j = (part: string) => wobble(id + part, 1.8);
+    const r = Math.min(h / 2, 27), j = (part: string) => wobble(id + part, 1.1);
     return `M${r} ${1 + j('a')} C${w * .34} ${j('b')} ${w * .68} ${j('c')} ${w - r} ${1 + j('d')} C${w - r * .35} ${j('e')} ${w + j('f')} ${r * .65} ${w - 1 + j('g')} ${h / 2} C${w + j('h')} ${h - r * .3} ${w - r * .4} ${h + j('i')} ${w - r} ${h - 1 + j('j')} C${w * .68} ${h + j('k')} ${w * .32} ${h + j('l')} ${r} ${h - 1 + j('m')} C${r * .35} ${h + j('n')} ${j('o')} ${h - r * .5} ${1 + j('p')} ${h / 2} C${j('q')} ${r * .5} ${r * .3} ${j('r')} ${r} ${1 + j('a')} Z`;
 }
